@@ -3,7 +3,7 @@
 # Test Ortho4XP end to end and offline: build the tile +45+005 from a
 # generated DEM, cached OSM data, and imagery served by this script, and
 # check what Steps 1 to 3 produce. With -gui, check that the GUI starts
-# and keeps running instead.
+# and keeps running, and drive its windows, instead.
 
 import bz2
 import glob
@@ -66,6 +66,47 @@ osm = {
     "coastline": [(line((45.3, 4.95), (44.95, 5.3)), {"natural": "coastline"})],
     "water": [(box(45.84, 5.6, 45.852, 5.616), {"natural": "water", "name": "Test"})],
 }
+
+# Settings must never run code. The tests put this one in config files and
+# fields, and require that no file named pwned appears.
+payload = '__import__("pathlib").Path("pwned").touch()'
+
+# A tile config in the form of 1.20, which appends zones one per line.
+legacy_code = """
+import ast
+import O4_Config_Utils as CFG
+tile = CFG.Tile(45, 5, "")
+tile.read_from_config(sys.argv[1])
+if tile.zone_list != ast.literal_eval(sys.argv[2]):
+    sys.exit("zones " + repr(tile.zone_list) + ", want " + sys.argv[2])
+"""
+
+# The GUI, driven in-process.
+gui_code = """
+import os
+import O4_Imagery_Utils as IMG
+IMG.initialize_extents_dict()
+IMG.initialize_color_filters_dict()
+IMG.initialize_providers_dict()
+IMG.initialize_combined_providers_dict()
+import O4_GUI_Utils as GUI
+import O4_Config_Utils as CFG
+import O4_Tile_Utils as TILE
+errors = []
+gui = GUI.Ortho4XP_GUI()
+gui.open_config_window()
+gui.config_window.v_["skip_downloads"].set(sys.argv[1])
+gui.config_window.v_["masks_width"].set("[1, 2")
+gui.config_window.apply_changes()
+if TILE.skip_downloads is not False or CFG.masks_width != 100:
+    errors.append("config window: kept invalid values")
+gui.update()
+gui.exit_prg()
+if os.path.exists("pwned"):
+    errors.append("config window: a setting ran code")
+if errors:
+    sys.exit("\\n".join(errors))
+"""
 
 skip = {
     ".git", ".last_gui_params.txt", "Elevation_data", "Geotiffs", "Masks",
@@ -142,6 +183,24 @@ def run(cmd, cwd, log, timeout):
         except subprocess.TimeoutExpired:
             return "timeout"
 
+# Runs Python code in the copied tree, with the program's modules on the
+# path. The code reports failures with sys.exit(message), and check
+# returns them as errors.
+def check(name, code, args, work, top, log, timeout = 300):
+    path = os.path.join(work, name + ".py")
+    with open(path, "w") as f:
+        f.write("import sys\nsys.dont_write_bytecode = True\nsys.path[:0] = ['src', 'Providers']\n" + code)
+    with open(log, "ab") as out:
+        try:
+            r = subprocess.run([sys.executable, path] + args, cwd = top, env = offline_env(), stdout = out, stderr = subprocess.PIPE, timeout = timeout)
+            (status, err) = (r.returncode, r.stderr.decode("utf-8", "replace"))
+        except subprocess.TimeoutExpired:
+            (status, err) = ("timeout", "")
+        out.write(err.encode("utf-8"))
+    if status == 0:
+        return []
+    return [name + ": " + line for line in err.splitlines() if line.strip()] or [name + ": exit status " + str(status) + ", see " + log]
+
 def test_tile(work, top):
     image = Image.new("RGB", (256, 256), color)
     f = io.BytesIO()
@@ -166,6 +225,8 @@ def test_tile(work, top):
     with open(os.path.join(build, "Ortho4XP_" + tile + ".cfg"), "w") as f:
         for (k, v) in config.items():
             f.write(k + "=" + str(v) + "\n")
+    with open(os.path.join(top, "Ortho4XP.cfg"), "w") as f:
+        f.write("skip_downloads=" + payload + "\n")
 
     log = os.path.join(work, "Ortho4XP.log")
     status = run([sys.executable, "Ortho4XP.py", str(lat), str(lon)], top, log, 1800)
@@ -174,6 +235,16 @@ def test_tile(work, top):
         return ["Ortho4XP.py " + str(lat) + " " + str(lon) + ": exit status " + str(status) + ", see " + log]
 
     errors = []
+    with open(log, encoding = "utf-8", errors = "replace") as f:
+        if "invalid line: skip_downloads=" not in f.read():
+            errors.append("Ortho4XP.cfg: no warning for a setting that holds code")
+    legacy = os.path.join(work, "legacy.cfg")
+    with open(legacy, "w") as f:
+        for zone in config["zone_list"] + [payload]:
+            f.write("zone_list.append(" + str(zone) + ")\n")
+    errors += check("legacy", legacy_code, [legacy, repr(config["zone_list"])], work, top, log)
+    if os.path.exists(os.path.join(top, "pwned")):
+        errors.append("config: a setting ran code")
     textures = sorted(glob.glob(os.path.join(build, "textures", "*.dds")))
     formats = {}
     for path in textures:
@@ -244,7 +315,7 @@ def test_gui(work, top):
     for text in ("Traceback", "Exception in Tkinter callback"):
         if text in out:
             errors.append("GUI printed " + text + ", see " + log)
-    return errors
+    return errors + check("gui", gui_code, [payload], work, top, log)
 
 if __name__ == "__main__":
     if sys.argv[1:] not in ([], ["-gui"]):

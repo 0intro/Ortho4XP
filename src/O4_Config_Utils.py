@@ -1,5 +1,9 @@
+import ast
+import copy
 import os
 import locale
+import re
+import sys
 from math import ceil
 import tkinter as tk
 import tkinter.ttk as ttk
@@ -26,6 +30,80 @@ def open_config(file_name):
         return open(file_name, encoding=locale.getencoding())
     f.seek(0)
     return f
+
+
+def read_config(file_name):
+    # Returns the settings of a config file as (var, text) pairs, and the
+    # zones that 1.20 configs add with lines of the form
+    # zone_list.append(<zone>). Other lines get a warning.
+    settings = []
+    zones = []
+    with open_config(file_name) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line[0] == "#":
+                continue
+            m = re.fullmatch(r"zone_list\.append\((.*)\)", line)
+            if m:
+                try:
+                    zones.append(literal(m[1]))
+                except ValueError as e:
+                    warn_config(file_name, line, str(e))
+                continue
+            (var, sep, text) = line.partition("=")
+            if not sep or var not in cfg_vars:
+                warn_config(file_name, line, "unknown setting")
+                continue
+            # Configs from 1.20 and before quote some values.
+            if text[:1] in ('"', "'"):
+                text = text[1:]
+            if text[-1:] in ('"', "'"):
+                text = text[:-1]
+            settings.append((var, text))
+    return (settings, zones)
+
+
+def warn_config(file_name, line, reason):
+    UI.lvprint(
+        1, "CFG error:", file_name + ": invalid line:", line, "(" + reason + ")"
+    )
+
+
+# Settings live in this module, or in the module that cfg_vars names.
+# Config files and the GUI give their values as text, which parse_value
+# reads as the setting's type: literal_eval, which accepts only Python
+# literals, reads bool and list settings (a list setting may hold a
+# number, as masks_width does), and the type itself reads the others.
+def owner(var):
+    name = cfg_vars[var].get("module")
+    return sys.modules[__name__] if name is None else globals()[name]
+
+
+def get_var(var):
+    return getattr(owner(var), var)
+
+
+def set_var(var, value):
+    setattr(owner(var), var, value)
+
+
+def literal(text):
+    try:
+        return ast.literal_eval(text)
+    except (SyntaxError, ValueError, TypeError, MemoryError, RecursionError):
+        raise ValueError("not a Python literal")
+
+
+def parse_value(var, text):
+    kind = cfg_vars[var]["type"]
+    if kind not in (bool, list):
+        return kind(text)
+    value = literal(text)
+    if kind is bool and not isinstance(value, bool):
+        raise ValueError("not True or False")
+    if kind is list and not isinstance(value, (list, tuple, int, float)):
+        raise ValueError("not a list or a number")
+    return value
 
 
 cfg_vars = {
@@ -455,45 +533,24 @@ list_global_cfg = (
 ################################################################################
 # Initialization to default values
 for var in cfg_vars:
-    target = (
-        cfg_vars[var]["module"] + "." + var
-        if "module" in cfg_vars[var]
-        else var
-    )
-    exec(target + "=cfg_vars['" + var + "']['default']")
+    set_var(var, copy.deepcopy(cfg_vars[var]["default"]))
 ################################################################################
 # Update from Global Ortho4XP.cfg
+global_cfg = os.path.join(FNAMES.Ortho4XP_dir, "Ortho4XP.cfg")
 try:
-    f = open_config(os.path.join(FNAMES.Ortho4XP_dir, "Ortho4XP.cfg"))
-    for line in f.readlines():
-        line = line.strip()
-        if not line:
-            continue
-        if line[0] == "#":
-            continue
-        try:
-            (var, value) = line.split("=")
-            # compatibility with config files from version <= 1.20
-            if value and value[0] in ('"', "'"):
-                value = value[1:]
-            if value and value[-1] in ('"', "'"):
-                value = value[:-1]
-            target = (
-                cfg_vars[var]["module"] + "." + var
-                if "module" in cfg_vars[var]
-                else var
-            )
-            if cfg_vars[var]["type"] in (bool, list):
-                cmd = target + "=" + value
-            else:
-                cmd = target + "=cfg_vars['" + var + "']['type'](value)"
-            exec(cmd)
-        except:
-            UI.lvprint(1, "Global config file contains an invalid line:", line)
-            pass
-    f.close()
-except:
+    (settings, zones) = read_config(global_cfg)
+except OSError:
     print("No global config file found. Reverting to default values.")
+else:
+    for (var, text) in settings:
+        try:
+            set_var(var, parse_value(var, text))
+        except ValueError as e:
+            warn_config(global_cfg, var + "=" + text, str(e))
+    if zones:
+        warn_config(
+            global_cfg, "zone_list.append", "zones belong in tile configs"
+        )
 
 
 ################################################################################
@@ -511,7 +568,7 @@ class Tile:
         self.build_dir = FNAMES.build_dir(lat, lon, custom_build_dir)
         self.dem = None
         for var in list_tile_vars:
-            exec("self." + var + "=" + var)
+            setattr(self, var, get_var(var))
 
     def make_dirs(self):
         if os.path.isdir(self.build_dir):
@@ -551,51 +608,22 @@ class Tile:
                     )
                     return 0
         try:
-            f = open_config(config_file)
-            for line in f.readlines():
-                line = line.strip()
-                if not line:
-                    continue
-                if line[0] == "#":
-                    continue
-                try:
-                    (var, value) = line.split("=")
-                    # compatibility with config files from version <= 1.20
-                    if value and value[0] in ('"', "'"):
-                        value = value[1:]
-                    if value and value[-1] in ('"', "'"):
-                        value = value[:-1]
-                    if cfg_vars[var]["type"] in (bool, list):
-                        cmd = "self." + var + "=" + value
-                    else:
-                        cmd = (
-                            "self."
-                            + var
-                            + "=cfg_vars['"
-                            + var
-                            + "']['type'](value)"
-                        )
-                    exec(cmd)
-                except Exception as e:
-                    # compatibility with zone_list config files from 
-                    # version <= 1.20
-                    if "zone_list.append" in line:
-                        try:
-                            exec("self." + line)
-                        except:
-                            pass
-                    else:
-                        UI.vprint(2, e)
-                        pass
-            f.close()
-            return 1
-        except:
+            (settings, zones) = read_config(config_file)
+        except OSError:
             UI.lvprint(
                 0,
                 "CFG error: Could not read config file for tile",
                 FNAMES.short_latlon(self.lat, self.lon),
             )
             return 0
+        for (var, text) in settings:
+            try:
+                setattr(self, var, parse_value(var, text))
+            except ValueError as e:
+                warn_config(config_file, var + "=" + text, str(e))
+        if zones:
+            self.zone_list = self.zone_list + zones
+        return 1
 
     def write_to_config(self, config_file = None):
         if not config_file:
@@ -611,7 +639,7 @@ class Tile:
         try:
             f = open(config_file, "w", encoding="utf-8")
             for var in list_tile_vars:
-                f.write(var + "=" + str(eval("self." + var)) + "\n")
+                f.write(var + "=" + str(getattr(self, var)) + "\n")
             f.close()
             return 1
         except Exception as e:
@@ -942,12 +970,7 @@ class Ortho4XP_Config(tk.Toplevel):
 
     def load_interface_from_variables(self):
         for var in cfg_vars:
-            target = (
-                cfg_vars[var]["module"] + "." + var
-                if "module" in cfg_vars[var]
-                else var
-            )
-            self.v_[var].set(str(eval(target)))
+            self.v_[var].set(str(get_var(var)))
 
     def choose_dem(self):
         tmp = filedialog.askopenfilename(
@@ -984,7 +1007,6 @@ class Ortho4XP_Config(tk.Toplevel):
             self.v_[item].set(str(tmp))
 
     def load_tile_cfg(self):
-        zone_list = []
         try:
             (lat, lon) = self.parent.get_lat_lon()
         except:
@@ -992,46 +1014,24 @@ class Ortho4XP_Config(tk.Toplevel):
         custom_build_dir = self.parent.custom_build_dir_entry.get()
         build_dir = FNAMES.build_dir(lat, lon, custom_build_dir)
         try:
-            f = open_config(
+            (settings, zones) = read_config(
                 os.path.join(
                     build_dir,
                     "Ortho4XP_" + FNAMES.short_latlon(lat, lon) + ".cfg",
                 )
             )
-        except:
+        except OSError:
             try:
-                f = open_config(os.path.join(build_dir, "Ortho4XP.cfg"))
-            except:
+                (settings, zones) = read_config(
+                    os.path.join(build_dir, "Ortho4XP.cfg")
+                )
+            except OSError:
                 self.popup("ERROR", "No config file found in " + str(build_dir))
                 return 0
-        for line in f.readlines():
-            line = line.strip()
-            if not line:
-                continue
-            if line[0] == "#":
-                continue
-            try:
-                (var, value) = line.split("=")
-                # compatibility with config files from version <= 1.20
-                if value and value[0] in ('"', "'"):
-                    value = value[1:]
-                if value and value[-1] in ('"', "'"):
-                    value = value[:-1]
-                self.v_[var].set(value)
-            except Exception as e:
-                # compatibility with zone_list config files from version <= 1.20
-                if "zone_list.append" in line:
-                    try:
-                        exec(line)
-                    except Exception as e:
-                        print(e)
-                        pass
-                else:
-                    UI.vprint(2, e)
-                    pass
+        for (var, text) in settings:
+            self.v_[var].set(text)
         if not self.v_["zone_list"].get():
-            self.v_["zone_list"].set(str(zone_list))
-        f.close()
+            self.v_["zone_list"].set(str(zones))
 
     def write_tile_cfg(self):
         try:
@@ -1054,7 +1054,7 @@ class Ortho4XP_Config(tk.Toplevel):
         except:
             self.popup("ERROR", "Cannot write into " + str(build_dir))
             return 0
-        self.v_["zone_list"].set(str(eval("zone_list")))
+        self.v_["zone_list"].set(str(zone_list))
         for var in list_tile_vars:
             f.write(var + "=" + self.v_[var].get() + "\n")
         f.close()
@@ -1062,26 +1062,13 @@ class Ortho4XP_Config(tk.Toplevel):
 
     def load_global_cfg(self):
         try:
-            f = open_config(os.path.join(FNAMES.Ortho4XP_dir, "Ortho4XP.cfg"))
-        except:
+            (settings, zones) = read_config(
+                os.path.join(FNAMES.Ortho4XP_dir, "Ortho4XP.cfg")
+            )
+        except OSError:
             return 0
-        for line in f.readlines():
-            line = line.strip()
-            if not line:
-                continue
-            if line[0] == "#":
-                continue
-            try:
-                (var, value) = line.split("=")
-                # compatibility with config files from version <= 1.20
-                if value and value[0] in ('"', "'"):
-                    value = value[1:]
-                if value and value[-1] in ('"', "'"):
-                    value = value[:-1]
-                self.v_[var].set(value)
-            except:
-                pass
-        f.close()
+        for (var, text) in settings:
+            self.v_[var].set(text)
         return
 
     def write_global_cfg(self):
@@ -1102,38 +1089,11 @@ class Ortho4XP_Config(tk.Toplevel):
         errors = []
         for var in list_tile_vars + list_app_vars:
             try:
-                target = (
-                    cfg_vars[var]["module"] + "." + var
-                    if "module" in cfg_vars[var]
-                    else "globals()['" + var + "']"
-                )
-                if cfg_vars[var]["type"] in (bool, list):
-                    cmd = target + "=" + self.v_[var].get()
-                else:
-                    cmd = (
-                        target
-                        + "=cfg_vars['"
-                        + var
-                        + "']['type'](self.v_['"
-                        + var
-                        + "'].get())"
-                    )
-                exec(cmd)
-            except:
-                target = (
-                    cfg_vars[var]["module"] + "." + var
-                    if "module" in cfg_vars[var]
-                    else "globals()['" + var + "']"
-                )
-                self.v_[var].set(str(cfg_vars[var]["default"]))
-                exec(
-                    target
-                    + "=cfg_vars['"
-                    + var
-                    + "']['type'](cfg_vars['"
-                    + var
-                    + "']['default'])"
-                )
+                set_var(var, parse_value(var, self.v_[var].get()))
+            except ValueError:
+                value = copy.deepcopy(cfg_vars[var]["default"])
+                self.v_[var].set(str(value))
+                set_var(var, value)
                 errors.append(var)
         if errors:
             error_text = (
