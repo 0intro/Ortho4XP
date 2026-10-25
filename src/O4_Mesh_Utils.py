@@ -1,11 +1,11 @@
 import time
 import sys
 import os
-import pickle
 import subprocess
 import numpy
 import requests
 from math import sqrt, cos, pi
+import O4_Airport_Utils as APT
 import O4_DEM_Utils as DEM
 import O4_UI_Utils as UI
 import O4_File_Names as FNAMES
@@ -134,21 +134,8 @@ def build_curv_tol_weight_map(tile, weight_array):
         UI.vprint(
             1, "-> Modifying curv_tol weight map according to runway locations."
         )
-        try:
-            f = open(FNAMES.apt_file(tile), "rb")
-            dico_airports = pickle.load(f)
-            f.close()
-        except:
-            UI.vprint(
-                1,
-                "   WARNING: File",
-                FNAMES.apt_file(tile),
-                "is missing (erased after Step 1?), cannot check airport info ",
-                "for upgraded zoomlevel.",
-            )
-            dico_airports = {}
-        for airport in dico_airports:
-            (xmin, ymin, xmax, ymax) = dico_airports[airport]["boundary"].bounds
+        for (key_type, bounds) in APT.read_airport_bounds(tile):
+            (xmin, ymin, xmax, ymax) = bounds
             x_shift = 1000 * tile.apt_curv_ext * GEO.m_to_lon(tile.lat)
             y_shift = 1000 * tile.apt_curv_ext * GEO.m_to_lat
             colmin = max(round((xmin - x_shift) * 1000), 0)

@@ -179,7 +179,7 @@ def alt_file(tile):
 
 def apt_file(tile):
     return os.path.join(
-        tile.build_dir, "Data" + short_latlon(tile.lat, tile.lon) + ".apt"
+        tile.build_dir, "Data" + short_latlon(tile.lat, tile.lon) + ".apt.json"
     )
 
 

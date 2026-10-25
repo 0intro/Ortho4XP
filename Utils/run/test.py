@@ -10,6 +10,7 @@ import glob
 import hashlib
 import http.server
 import io
+import math
 import os
 import shutil
 import subprocess
@@ -46,8 +47,8 @@ def box(lat0, lon0, lat1, lon1):
 # The tile config, and the OSM ways as (lat, lon) lists with their tags.
 # The coastline runs along lat + lon = 50.25 with the sea to the south
 # west, and the ZL 14 zone straddles it. The airport lies on the plateau
-# of the DEM, and the motorway climbs the steep flank of its hill, which
-# makes Step 1 level it.
+# of the DEM and gets ZL 15 textures, and the motorway climbs the steep
+# flank of its hill, which makes Step 1 level it.
 config = {
     "default_website": "TEST",
     "default_zl": 12,
@@ -55,6 +56,8 @@ config = {
     "mesh_zl": 16,
     "custom_dem": os.path.join("Elevation_data", "test.hgt"),
     "road_level": 1,
+    "cover_airports_with_highres": "True",
+    "cover_zl": 15,
 }
 
 osm = {
@@ -120,6 +123,13 @@ def ignore(dir, names):
     if os.path.samefile(dir, os.path.join(root_dir, "Utils")):
         return [name for name in names if name == "build"]
     return [name for name in names if name == "__pycache__"]
+
+# The name of the texture at zoomlevel zl that covers (lat, lon).
+def texture(lat, lon, zl):
+    n = 2 ** zl
+    x = int((lon + 180) / 360 * n)
+    y = int((1 - math.asinh(math.tan(math.radians(lat))) / math.pi) / 2 * n)
+    return str(y // 16 * 16) + "_" + str(x // 16 * 16) + "_TEST" + str(zl) + ".dds"
 
 def write_dem(path):
     # 1201 rows from north to south, and columns from west to east: sea,
@@ -270,6 +280,12 @@ def test_tile(work, top):
         mean = numpy.asarray(Image.open(path).convert("RGB"), dtype = float).mean(axis = (0, 1))
         if numpy.abs(mean - served).max() > 6:
             errors.append(path + ": mean color " + str(mean.round(1)) + ", want " + str(served.round(1)))
+    apt = os.path.join(build, "Data" + tile + ".apt.json")
+    if not os.path.exists(apt):
+        errors.append(apt + ": missing")
+    airport = os.path.join(build, "textures", texture(45.75, 5.25, 15))
+    if airport not in textures:
+        errors.append(airport + ": missing, Step 3 lost the airport bounds")
     if not glob.glob(os.path.join(top, "Masks", "+40+000", tile, "*.png")):
         errors.append("masks: none")
     if not glob.glob(os.path.join(build, "terrain", "*.ter")):

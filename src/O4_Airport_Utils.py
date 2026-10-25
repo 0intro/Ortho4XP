@@ -1,4 +1,4 @@
-import pickle
+import json
 from math import floor, ceil, pi, cos, sin
 import numpy
 from shapely import geometry, affinity, ops
@@ -828,18 +828,39 @@ def update_airport_boundaries(tile, dico_airports):
             apt["boundary"] = VECT.ensure_MultiPolygon(
                 boundary.buffer(0).simplify(0.00001)
             )
-    # pickle dico_airports for later use in Step 2 (apt_curv_tol) and Step 3 
-    # (cover_airports_with_high_res)
+    # Step 2 (apt_curv_tol) and Step 3 (cover_airports_with_highres) read
+    # the airport bounds back with read_airport_bounds.
+    airports = [
+        {"key_type": apt["key_type"], "bounds": apt["boundary"].bounds}
+        for apt in dico_airports.values()
+    ]
     try:
-        with open(FNAMES.apt_file(tile), "wb") as outf:
-            pickle.dump(dico_airports, outf)
-    except:
+        with open(FNAMES.apt_file(tile), "w", encoding="utf-8") as f:
+            json.dump(airports, f)
+    except OSError:
         UI.vprint(
             1,
             "WARNING: Could not save airport info to file",
             FNAMES.apt_file(tile),
         )
     return
+
+
+################################################################################
+def read_airport_bounds(tile):
+    # The key type and the bounds of each airport that Step 1 found.
+    try:
+        with open(FNAMES.apt_file(tile), encoding="utf-8") as f:
+            return [(apt["key_type"], apt["bounds"]) for apt in json.load(f)]
+    except (OSError, ValueError, KeyError, TypeError):
+        UI.vprint(
+            1,
+            "   WARNING: File",
+            FNAMES.apt_file(tile),
+            "is missing (erased after Step 1?), cannot check airport info ",
+            "for upgraded zoomlevel.",
+        )
+        return []
 
 ################################################################################
 def list_airports_and_runways(dico_airports):
