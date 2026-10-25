@@ -1,5 +1,4 @@
 import os
-import pickle
 import shutil
 import io
 from math import floor, ceil
@@ -9,6 +8,7 @@ from PIL import Image, ImageDraw
 from collections import defaultdict
 import struct
 import hashlib
+import O4_Airport_Utils as APT
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
 import O4_Mask_Utils as MASK
@@ -116,29 +116,10 @@ def zone_list_to_ortho_dico(tile):
     airport_array = numpy.zeros((4096, 4096), dtype=numpy.bool_)
     if tile.cover_airports_with_highres in ("True", "ICAO"):
         UI.vprint(1, "-> Checking airport locations for upgraded zoomlevel.")
-        try:
-            f = open(FNAMES.apt_file(tile), "rb")
-            dico_airports = pickle.load(f)
-            f.close()
-        except:
-            UI.vprint(
-                1,
-                "   WARNING: File",
-                FNAMES.apt_file(tile),
-                "is missing (erased after Step 1?), cannot check airport info ",
-                "for upgraded zoomlevel.",
-            )
-            dico_airports = {}
-        if tile.cover_airports_with_highres == "ICAO":
-            airports_list = [
-                airport
-                for airport in dico_airports
-                if dico_airports[airport]["key_type"] == "icao"
-            ]
-        else:
-            airports_list = dico_airports.keys()
-        for airport in airports_list:
-            (xmin, ymin, xmax, ymax) = dico_airports[airport]["boundary"].bounds
+        for (key_type, bounds) in APT.read_airport_bounds(tile):
+            if tile.cover_airports_with_highres == "ICAO" and key_type != "icao":
+                continue
+            (xmin, ymin, xmax, ymax) = bounds
             # extension
             xmin -= 1000 * tile.cover_extent * GEO.m_to_lon(tile.lat)
             xmax += 1000 * tile.cover_extent * GEO.m_to_lon(tile.lat)
