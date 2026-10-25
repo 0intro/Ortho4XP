@@ -68,14 +68,19 @@ def build_overlay(lat, lon):
     if dsfid == "7z":
         UI.vprint(1, "-> The original DSF is a 7z archive, uncompressing...")
         os.replace(file_to_sniff_loc, file_to_sniff_loc + ".7z")
-        os.system(
+        if os.system(
             unzip_cmd
             + " e -o"
             + FNAMES.Tmp_dir
             + ' "'
             + file_to_sniff_loc
             + '.7z"'
-        )
+        ):
+            os.remove(file_to_sniff_loc + ".7z")
+            UI.exit_message_and_bottom_line(
+                "   ERROR: 7z could not uncompress the DSF."
+            )
+            return 0
         os.remove(file_to_sniff_loc + ".7z")
     UI.vprint(1, "-> Converting the copy to text format")
     dsfconvertcmd = [
@@ -95,7 +100,7 @@ def build_overlay(lat, lon):
             break
         else:
             UI.vprint(1, "     " + line.decode("utf-8")[:-1])
-    if fingers_crossed.returncode:
+    if fingers_crossed.wait():
         UI.exit_message_and_bottom_line("   ERROR: DSFTool crashed.")
         return 0
     UI.vprint(1, "-> Selecting overlays for copy/paste")
@@ -195,6 +200,9 @@ def build_overlay(lat, lon):
             break
         else:
             print("     " + line.decode("utf-8")[:-1])
+    if fingers_crossed.wait():
+        UI.exit_message_and_bottom_line("   ERROR: DSFTool crashed.")
+        return 0
     dest_dir = os.path.join(
         FNAMES.Overlay_dir, "Earth nav data", FNAMES.round_latlon(lat, lon)
     )

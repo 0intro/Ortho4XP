@@ -696,8 +696,7 @@ def build_mesh(tile):
                 print(line.decode("utf-8")[:-1])
             except:
                 pass
-    time.sleep(0.3)
-    fingers_crossed.poll()
+    fingers_crossed.wait()
     if fingers_crossed.returncode:
         UI.vprint(
             0,
@@ -719,8 +718,7 @@ def build_mesh(tile):
                     print(line.decode("utf-8")[:-1])
                 except:
                     pass
-        time.sleep(0.3)
-        fingers_crossed.poll()
+        fingers_crossed.wait()
         if fingers_crossed.returncode:
             UI.exit_message_and_bottom_line(
                 "\nERROR: Triangle4XP really couldn't make it !\n\n",
@@ -805,6 +803,9 @@ def sort_mesh(tile):
             break
         else:
             print(line.decode("utf-8")[:-1])
+    if moulinette.wait():
+        UI.exit_message_and_bottom_line("\nERROR: moulinette failed.")
+        return 0
     UI.timings_and_bottom_line(timer)
     UI.logprint(
         "Moulinette applied for tile lat=",
@@ -834,7 +835,7 @@ def triangulate(name, path_to_Ortho4XP_dir):
             break
         else:
             print(line.decode("utf-8")[:-1])
-    fingers_crossed.poll()
+    fingers_crossed.wait()
     if fingers_crossed.returncode:
         print("\nERROR: triangle crashed, check osm mask data.\n")
         return 0
