@@ -365,11 +365,12 @@ def extract_elevation_and_bathymetry_data(lat, lon):
         FNAMES.long_latlon(lat, lon) + ".dsf",
     )
     if not os.path.exists(global_scenery_dsf):
-        UI.exit_message_and_bottom_line(
-            "   ERROR: file ",
+        UI.lvprint(
+            1,
+            "     WARNING: file",
             global_scenery_dsf,
-            "absent. Global Scenery directory needs to be set in the config ",
-            "window first.",
+            "absent, the DSF goes without the Global Scenery rasters.",
+            "Set custom_overlay_src to the Global Scenery directory.",
         )
         return (b"", b"")
     tmp_file = os.path.join(
@@ -379,7 +380,8 @@ def extract_elevation_and_bathymetry_data(lat, lon):
     try:
         shutil.copy(global_scenery_dsf, tmp_file)
     except:
-        UI.exit_message_and_bottom_line(
+        UI.lvprint(
+            0,
             "     ERROR: could not copy it. Disk full, write permissions,",
             " erased tmp dir ?",
         )
@@ -403,7 +405,7 @@ def extract_elevation_and_bathymetry_data(lat, lon):
     # read filetype cookie
     dsfid = f.read(8).decode("ascii")
     if dsfid != "XPLNEDSF":
-        UI.exit_message_and_bottom_line("     ERROR: Corrupted DSF file.")
+        UI.lvprint(0, "     ERROR: Corrupted DSF file.")
         os.remove(tmp_file)
         return (b"", b"")
     # skip format number
@@ -738,8 +740,6 @@ def build_dsf(tile, download_queue):
                         # maybe target_tex was a DXT5, it should ne a DXT1
                         if (os.path.getsize(target_tex) > 20000000):
                             rebuild = True
-                        else:
-                            print(os.path.getsize(target_tex))
                     
                     if (rebuild or not tile.imprint_masks_to_dds):
                         mask_im.save(os.path.join(
