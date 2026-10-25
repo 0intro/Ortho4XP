@@ -655,7 +655,7 @@ def initialize_local_combined_providers_dict(tile):
             if has_data(
                 (tile.lon, tile.lat + 1, tile.lon + 1, tile.lat),
                 rlayer["extent_code"],
-                is_mask_layer,
+                is_mask_layer=is_mask_layer,
             ):
                 comb_list.append(rlayer)
         if not comb_list:
@@ -1650,7 +1650,9 @@ def build_jpeg_ortho(
             accept_layer = len(
                 local_combined_providers_dict[provider_code]
             ) == 1 or has_data(
-                (x0, y0, x1, y1), rlayer["extent_code"], is_mask_layer
+                (x0, y0, x1, y1),
+                rlayer["extent_code"],
+                is_mask_layer=is_mask_layer,
             )
             if accept_layer:
                 data_found = True
