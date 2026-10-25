@@ -1,0 +1,131 @@
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    timeout-minutes: 30
+    env:
+      CMAKE_BUILD_PARALLEL_LEVEL: 4
+    steps:
+      - name: Show the system
+        run: cat /etc/os-release
+      - name: Install the build tools
+        run: >
+          dnf -y install git cmake make gcc gcc-c++ glibc-static
+          libstdc++-static mingw64-gcc mingw64-gcc-c++
+          mingw64-winpthreads-static python3 python3-pip tar xz zip
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      # The workspace belongs to the runner's user, and git refuses a
+      # repository that another user owns.
+      - name: Trust the checkout
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Build the programs
+        run: |
+          Utils/run/configure.py lin win
+          Utils/run/build.py lin win
+      - name: Bundle
+        run: |
+          Utils/run/bundle.py lin
+          Utils/run/bundle.py win
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bundles
+          path: |
+            Utils/build/Ortho4XP-*.tar.gz
+            Utils/build/Ortho4XP-*.zip
+          compression-level: 0
+
+  test-linux:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: bundles
+      - name: Unpack
+        run: tar -xzf Ortho4XP-*-linux-x86_64.tar.gz
+      - name: Test
+        run: Ortho4XP/python/bin/python3 Ortho4XP/Utils/run/test.py
+      - name: Test the GUI
+        run: xvfb-run -a Ortho4XP/python/bin/python3 Ortho4XP/Utils/run/test.py -gui
+      - name: Test the launcher
+        run: |
+          status=0
+          Ortho4XP/Ortho4XP 1 2 3 || status=$?
+          test "$status" = 2
+
+  test-source:
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    timeout-minutes: 30
+    steps:
+      - name: Install Python and Xvfb
+        run: >
+          dnf -y install git python3.15 python3.15-tkinter
+          xorg-x11-server-Xvfb xorg-x11-xauth dejavu-sans-fonts
+      - uses: actions/checkout@v7
+      - name: Install the requirements
+        run: |
+          python3.15 -m venv /tmp/venv
+          /tmp/venv/bin/pip install -r requirements.txt
+      - name: Test
+        run: /tmp/venv/bin/python Utils/run/test.py
+      - name: Test the GUI
+        run: xvfb-run -a /tmp/venv/bin/python Utils/run/test.py -gui
+
+  test-windows:
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: bundles
+      - name: Unpack
+        run: /c/Windows/System32/tar.exe -xf Ortho4XP-*-windows-x86_64.zip
+      # PATH holds only the Windows directories, so every DLL comes from
+      # the bundle or from Windows.
+      - name: Test
+        run: PATH=/c/Windows/System32:/c/Windows Ortho4XP/python/python.exe Ortho4XP/Utils/run/test.py
+      - name: Test the GUI
+        run: PATH=/c/Windows/System32:/c/Windows Ortho4XP/python/python.exe Ortho4XP/Utils/run/test.py -gui
+      - name: Test the launcher
+        run: |
+          status=0
+          PATH=/c/Windows/System32:/c/Windows cmd //c 'Ortho4XP\Ortho4XP.cmd 1 2 3' || status=$?
+          test "$status" = 2
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [test-linux, test-source, test-windows]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: bundles
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY"
+          --verify-tag --generate-notes
+          Ortho4XP-*.tar.gz Ortho4XP-*.zip
