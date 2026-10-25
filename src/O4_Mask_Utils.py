@@ -230,7 +230,7 @@ def build_masks(tile, for_imagery=False):
     UI.logprint(
         "Step 2.5 for tile lat=", tile.lat, ", lon=", tile.lon, ": normal exit."
     )
-    return
+    return 1
 ################################################################################
     
 ################################################################################
