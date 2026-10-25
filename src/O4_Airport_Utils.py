@@ -418,7 +418,6 @@ def sort_and_reconstruct_runways(tile, airport_layer, dico_airports):
                     )
                 else:
                     UI.logprint(
-                        1,
                         "Bad runway (geometry invalid or going back over ",
                         "itself) close to",
                         airport,
@@ -518,7 +517,6 @@ def sort_and_reconstruct_runways(tile, airport_layer, dico_airports):
                 )
             else:
                 UI.logprint(
-                    1,
                     "Bad runway (geometry invalid or going back over itself) ",
                     "close to",
                     airport,
@@ -1303,7 +1301,7 @@ def encode_runways_taxiways_and_aprons(
                 )
                 way = numpy.round(VECT.refine_way(way, 15), 7)
                 apron_pol = geometry.Polygon(way)
-                if not apron_pol.is_empty and runway_pol.is_valid:
+                if not apron_pol.is_empty and apron_pol.is_valid:
                     alti_way = numpy.array(
                         [
                             VECT.weighted_alt(node, alt_idx, alt_dico, tile.dem)
