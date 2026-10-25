@@ -18,7 +18,7 @@ skip_downloads = False
 skip_converts = False
 
 ################################################################################
-def download_textures(tile, download_queue, convert_queue):
+def download_textures(tile, download_queue, convert_queue, failed):
     UI.vprint(1, "-> Opening download queue.")
     done = 0
     while True:
@@ -32,6 +32,8 @@ def download_textures(tile, download_queue, convert_queue):
                 2, int(100 * done / (done + download_queue.qsize()))
             )
             convert_queue.put((tile, *texture_attributes))
+        else:
+            failed.append(texture_attributes)
         if UI.red_flag:
             UI.vprint(1, "Download process interrupted.")
             return 0
@@ -113,12 +115,15 @@ def build_tile(tile):
     
     download_launched = False
     convert_launched = False
+    failed_downloads = []
+    converted = 1
 
     build_dsf_thread = threading.Thread(
         target=DSF.build_dsf, args=[tile, download_queue]
     )
     download_thread = threading.Thread(
-        target=download_textures, args=[tile, download_queue, convert_queue]
+        target=download_textures,
+        args=[tile, download_queue, convert_queue, failed_downloads],
     )
     build_dsf_thread.start()
     if not skip_downloads:
@@ -146,7 +151,7 @@ def build_tile(tile):
         if convert_launched:
             for _ in range(max_convert_slots):
                 convert_queue.put("quit")
-            parallel_join(convert_workers)
+            converted = parallel_join(convert_workers)
             if UI.red_flag:
                 UI.vprint(1, "DDS conversion process interrupted.")
             elif dico_conv_progress["done"] >= 1:
@@ -159,10 +164,17 @@ def build_tile(tile):
     )
     try:
         os.replace(dsf_file_name + ".tmp", dsf_file_name)
+        activated = True
     except:
         UI.vprint(0, "ERROR : could not rename DSF file, tile is not actived.")
+        activated = False
     if UI.red_flag:
         UI.exit_message_and_bottom_line()
+        return 0
+    if not activated or failed_downloads or not converted:
+        UI.exit_message_and_bottom_line(
+            "\nERROR: Some textures or the DSF could not be built, see above."
+        )
         return 0
     if UI.cleaning_level > 1:
         try:
