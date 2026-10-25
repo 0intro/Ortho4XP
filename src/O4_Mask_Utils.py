@@ -5,7 +5,12 @@ import queue
 from math import atan, ceil, floor
 import numpy
 from PIL import Image, ImageDraw, ImageFilter, ImageOps
-import skfmm
+
+try:
+    import skfmm
+    has_skfmm = True
+except ImportError:
+    has_skfmm = False
 import O4_DEM_Utils as DEM
 import O4_File_Names as FNAMES
 import O4_UI_Utils as UI
@@ -119,6 +124,12 @@ def build_masks(tile, for_imagery=False):
     (dico_sea, dico_inland) = record_water_tris(tile, )
 
     UI.vprint(1, "-> Construction of the masks")
+    if tile.distance_masks_too and not has_skfmm:
+        UI.lvprint(
+            0,
+            "WARNING: distance_masks_too needs scikit-fmm, which is not",
+            "installed. Skipping the distance masks.",
+        )
 
     if tile.masks_use_DEM_too:
         try:
@@ -181,7 +192,7 @@ def build_masks(tile, for_imagery=False):
             del blured_mask
             
             # Distance masks for bathymetry cut-off
-            if (tile.distance_masks_too):
+            if (tile.distance_masks_too and has_skfmm):
                 pre_mask = (pre_mask > 0).astype(float) * 2 - 1
                 band = 255 / 2**(16 - tile.mask_zl)
                 dist_array = skfmm.distance(pre_mask, narrow = band)
