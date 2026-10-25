@@ -356,8 +356,8 @@ class Ortho4XP_GUI(tk.Tk):
 
         # reinitialization from last visit
         try:
-            f = open(
-                os.path.join(FNAMES.Ortho4XP_dir, ".last_gui_params.txt"), "r"
+            f = CFG.open_config(
+                os.path.join(FNAMES.Ortho4XP_dir, ".last_gui_params.txt")
             )
             (lat, lon, default_website, default_zl) = f.readline().split()
             custom_build_dir = f.readline().strip()
@@ -585,7 +585,9 @@ class Ortho4XP_GUI(tk.Tk):
     def exit_prg(self):
         try:
             f = open(
-                os.path.join(FNAMES.Ortho4XP_dir, ".last_gui_params.txt"), "w"
+                os.path.join(FNAMES.Ortho4XP_dir, ".last_gui_params.txt"),
+                "w",
+                encoding="utf-8",
             )
             f.write(
                 self.lat.get()
@@ -1452,26 +1454,24 @@ class Ortho4XP_Earth_Preview(tk.Toplevel):
                         color = "blue"
                         content = ""
                         try:
-                            tmpf = open(
+                            tmpf = CFG.open_config(
                                 os.path.join(
                                     self.working_dir,
                                     dir_name,
                                     "Ortho4XP_"
                                     + FNAMES.short_latlon(lat, lon)
                                     + ".cfg",
-                                ),
-                                "r",
+                                )
                             )
                             found_config = True
                         except:
                             try:
-                                tmpf = open(
+                                tmpf = CFG.open_config(
                                     os.path.join(
                                         self.working_dir,
                                         dir_name,
                                         "Ortho4XP.cfg",
-                                    ),
-                                    "r",
+                                    )
                                 )
                                 found_config = True
                             except:
@@ -1556,14 +1556,13 @@ class Ortho4XP_Earth_Preview(tk.Toplevel):
                     color = "blue"
                     content = ""
                     try:
-                        tmpf = open(
+                        tmpf = CFG.open_config(
                             os.path.join(
                                 self.working_dir,
                                 "Ortho4XP_"
                                 + FNAMES.short_latlon(lat, lon)
                                 + ".cfg",
-                            ),
-                            "r",
+                            )
                         )
                         found_config = True
                     except:

@@ -1,4 +1,5 @@
 import os
+import locale
 from math import ceil
 import tkinter as tk
 import tkinter.ttk as ttk
@@ -11,6 +12,20 @@ import O4_Vector_Map as VMAP
 import O4_Imagery_Utils as IMG
 import O4_Tile_Utils as TILE
 import O4_Overlay_Utils as OVL
+
+
+################################################################################
+def open_config(file_name):
+    # Python before 3.15 wrote config files in the locale encoding, cp1252
+    # on most Windows systems.
+    f = open(file_name, encoding="utf-8")
+    try:
+        f.read()
+    except UnicodeDecodeError:
+        f.close()
+        return open(file_name, encoding=locale.getencoding())
+    f.seek(0)
+    return f
 
 
 cfg_vars = {
@@ -449,7 +464,7 @@ for var in cfg_vars:
 ################################################################################
 # Update from Global Ortho4XP.cfg
 try:
-    f = open(os.path.join(FNAMES.Ortho4XP_dir, "Ortho4XP.cfg"), "r")
+    f = open_config(os.path.join(FNAMES.Ortho4XP_dir, "Ortho4XP.cfg"))
     for line in f.readlines():
         line = line.strip()
         if not line:
@@ -536,7 +551,7 @@ class Tile:
                     )
                     return 0
         try:
-            f = open(config_file, "r")
+            f = open_config(config_file)
             for line in f.readlines():
                 line = line.strip()
                 if not line:
@@ -594,7 +609,7 @@ class Tile:
         except:
             pass
         try:
-            f = open(config_file, "w")
+            f = open(config_file, "w", encoding="utf-8")
             for var in list_tile_vars:
                 f.write(var + "=" + str(eval("self." + var)) + "\n")
             f.close()
@@ -977,16 +992,15 @@ class Ortho4XP_Config(tk.Toplevel):
         custom_build_dir = self.parent.custom_build_dir_entry.get()
         build_dir = FNAMES.build_dir(lat, lon, custom_build_dir)
         try:
-            f = open(
+            f = open_config(
                 os.path.join(
                     build_dir,
                     "Ortho4XP_" + FNAMES.short_latlon(lat, lon) + ".cfg",
-                ),
-                "r",
+                )
             )
         except:
             try:
-                f = open(os.path.join(build_dir, "Ortho4XP.cfg"), "r")
+                f = open_config(os.path.join(build_dir, "Ortho4XP.cfg"))
             except:
                 self.popup("ERROR", "No config file found in " + str(build_dir))
                 return 0
@@ -1035,6 +1049,7 @@ class Ortho4XP_Config(tk.Toplevel):
                     "Ortho4XP_" + FNAMES.short_latlon(lat, lon) + ".cfg",
                 ),
                 "w",
+                encoding="utf-8",
             )
         except:
             self.popup("ERROR", "Cannot write into " + str(build_dir))
@@ -1047,7 +1062,7 @@ class Ortho4XP_Config(tk.Toplevel):
 
     def load_global_cfg(self):
         try:
-            f = open(os.path.join(FNAMES.Ortho4XP_dir, "Ortho4XP.cfg"), "r")
+            f = open_config(os.path.join(FNAMES.Ortho4XP_dir, "Ortho4XP.cfg"))
         except:
             return 0
         for line in f.readlines():
@@ -1075,7 +1090,7 @@ class Ortho4XP_Config(tk.Toplevel):
         try:
             if (os.path.exists(new_cfg)):
                 os.replace(new_cfg, old_cfg)
-            f = open(new_cfg, "w")
+            f = open(new_cfg, "w", encoding="utf-8")
             for var in list_global_cfg:
                 f.write(var + "=" + self.v_[var].get() + "\n")
             f.close()
