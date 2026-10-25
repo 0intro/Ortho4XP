@@ -49,46 +49,47 @@ def build_poly_file(tile):
         UI.exit_message_and_bottom_line()
         return 0
 
+    def failed(what):
+        if UI.red_flag:
+            UI.exit_message_and_bottom_line()
+        else:
+            UI.exit_message_and_bottom_line(
+                "\nERROR: Could not obtain or process the OSM data for "
+                + what
+                + "."
+            )
+        return 0
+
     # Airports
-    (apt_array, apt_area) = include_airports(vector_map, tile)
+    airports = include_airports(vector_map, tile)
+    if not airports or UI.red_flag:
+        return failed("airports")
+    (apt_array, apt_area) = airports
     UI.vprint(
         1, "   Number of edges at this point:", len(vector_map.dico_edges)
     )
 
-    if UI.red_flag:
-        UI.exit_message_and_bottom_line()
-        return 0
-
     # Roads
-    include_roads(vector_map, tile, apt_array, apt_area)
+    if not include_roads(vector_map, tile, apt_array, apt_area) or UI.red_flag:
+        return failed("roads")
     if tile.road_level:
         UI.vprint(
             1, "   Number of edges at this point:", len(vector_map.dico_edges)
         )
 
-    if UI.red_flag:
-        UI.exit_message_and_bottom_line()
-        return 0
-
     # Sea
-    include_sea(vector_map, tile)
+    if not include_sea(vector_map, tile) or UI.red_flag:
+        return failed("the coastline")
     UI.vprint(
         1, "   Number of edges at this point:", len(vector_map.dico_edges)
     )
-
-    if UI.red_flag:
-        UI.exit_message_and_bottom_line()
-        return 0
 
     # Water
-    include_water(vector_map, tile)
+    if not include_water(vector_map, tile) or UI.red_flag:
+        return failed("inland water")
     UI.vprint(
         1, "   Number of edges at this point:", len(vector_map.dico_edges)
     )
-
-    if UI.red_flag:
-        UI.exit_message_and_bottom_line()
-        return 0
 
     # Buildings
     # include_buildings(vector_map)
@@ -192,7 +193,7 @@ def include_airports(vector_map, tile):
         tags_of_interest,
         cached_suffix="airports",
     ):
-        return (0, 0)
+        return 0
     dico_airports = {}
     APT.discover_airport_names(airport_layer, dico_airports)
     APT.attach_surfaces_to_airports(airport_layer, dico_airports)
@@ -251,7 +252,7 @@ def include_roads(vector_map, tile, apt_array, apt_area):
         return tile.dem.alt_vec(VECT.shift_way(way, tile.lane_width))
 
     if not tile.road_level:
-        return
+        return 1
     UI.vprint(0, "-> Dealing with roads")
     tags_of_interest = ["bridge", "tunnel"]
     # Need to evaluate if including bridges is better or worse
@@ -448,6 +449,7 @@ def include_sea(vector_map, tile):
                 vector_map.seeds["SEA"].append(seed)
             else:
                 vector_map.seeds["SEA"] = [seed]
+    return 1
 
 
 ################################################################################
