@@ -215,22 +215,15 @@ def build_tile(tile):
 
 ################################################################################
 def build_all(tile):
-    VMAP.build_poly_file(tile)
-    if UI.red_flag:
-        UI.exit_message_and_bottom_line("")
-        return 0
-    MESH.build_mesh(tile)
-    if UI.red_flag:
-        UI.exit_message_and_bottom_line("")
-        return 0
-    MASK.build_masks(tile)
-    if UI.red_flag:
-        UI.exit_message_and_bottom_line("")
-        return 0
-    build_tile(tile)
-    if UI.red_flag:
-        UI.exit_message_and_bottom_line("")
-        return 0
+    for step in (
+        VMAP.build_poly_file,
+        MESH.build_mesh,
+        MASK.build_masks,
+        build_tile,
+    ):
+        if not step(tile) or UI.red_flag:
+            UI.exit_message_and_bottom_line("")
+            return 0
     UI.is_working = 0
     return 1
 
@@ -245,6 +238,17 @@ def build_tile_list(
     UI.lvprint(
         0, "Batch build launched for a number of", len(list_lat_lon), "tiles."
     )
+
+    def stopped(lat, lon):
+        if UI.red_flag:
+            UI.exit_message_and_bottom_line()
+        else:
+            UI.exit_message_and_bottom_line(
+                "\nERROR: Batch build stopped at tile "
+                + FNAMES.short_latlon(lat, lon)
+                + "."
+            )
+        return 0
     k = 0
     for (lat, lon) in list_lat_lon:
         k += 1
@@ -266,31 +270,16 @@ def build_tile_list(
             tile.read_from_config()
         if do_osm or do_mesh or do_dsf:
             tile.make_dirs()
-        if do_osm:
-            VMAP.build_poly_file(tile)
-            if UI.red_flag:
-                UI.exit_message_and_bottom_line()
-                return 0
-        if do_mesh:
-            MESH.build_mesh(tile)
-            if UI.red_flag:
-                UI.exit_message_and_bottom_line()
-                return 0
-        if do_mask:
-            MASK.build_masks(tile)
-            if UI.red_flag:
-                UI.exit_message_and_bottom_line()
-                return 0
-        if do_dsf:
-            build_tile(tile)
-            if UI.red_flag:
-                UI.exit_message_and_bottom_line()
-                return 0
-        if do_ovl:
-            OVL.build_overlay(lat, lon)
-            if UI.red_flag:
-                UI.exit_message_and_bottom_line()
-                return 0
+        if do_osm and (not VMAP.build_poly_file(tile) or UI.red_flag):
+            return stopped(lat, lon)
+        if do_mesh and (not MESH.build_mesh(tile) or UI.red_flag):
+            return stopped(lat, lon)
+        if do_mask and (not MASK.build_masks(tile) or UI.red_flag):
+            return stopped(lat, lon)
+        if do_dsf and (not build_tile(tile) or UI.red_flag):
+            return stopped(lat, lon)
+        if do_ovl and (not OVL.build_overlay(lat, lon) or UI.red_flag):
+            return stopped(lat, lon)
         try:
             UI.gui.earth_window.canvas.delete(
                 UI.gui.earth_window.dico_tiles_todo[(lat, lon)]

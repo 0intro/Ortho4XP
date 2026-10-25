@@ -222,15 +222,22 @@ def build_masks(tile, for_imagery=False):
         masks_queue.put(key)
     dico_progress = {"done": 0, "bar": 1}
 
-    parallel_execute(build_mask, masks_queue, masks_build_slots,
-                     progress=dico_progress)
+    if not parallel_execute(build_mask, masks_queue, masks_build_slots,
+                            progress=dico_progress):
+        if UI.red_flag:
+            UI.exit_message_and_bottom_line()
+        else:
+            UI.exit_message_and_bottom_line(
+                "\nERROR: Some masks could not be built, see above."
+            )
+        return 0
 
     UI.progress_bar(1, 100)
     UI.timings_and_bottom_line(timer)
     UI.logprint(
         "Step 2.5 for tile lat=", tile.lat, ", lon=", tile.lon, ": normal exit."
     )
-    return
+    return 1
 ################################################################################
     
 ################################################################################
