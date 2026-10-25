@@ -61,14 +61,12 @@ if "dar" in sys.platform:
     )
     gdal_transl_cmd = "gdal_translate"
     gdalwarp_cmd = "gdalwarp"
-    devnull_rdir = " >/dev/null 2>&1"
 elif "win" in sys.platform:
     dds_convert_cmd = os.path.join(
         UI.Ortho4XP_dir, "Utils", "win", "nvcompress", "nvcompress.exe"
     )
     gdal_transl_cmd = "gdal_translate.exe"
     gdalwarp_cmd = "gdalwarp.exe"
-    devnull_rdir = " > nul  2>&1"
 else:
     #dds_convert_cmd = "nvcompress"
     dds_convert_cmd = os.path.join(
@@ -76,7 +74,6 @@ else:
         )
     gdal_transl_cmd = "gdal_translate"
     gdalwarp_cmd = "gdalwarp"
-    devnull_rdir = " >/dev/null 2>&1 "
 
 ################################################################################
 #
@@ -2465,7 +2462,6 @@ def convert_texture(
                 "-fast",
                 file_to_convert,
                 os.path.join(tile.build_dir, "textures", out_file_name),
-                devnull_rdir,
             ]
         else:
             conv_cmd = [
@@ -2474,7 +2470,6 @@ def convert_texture(
                 "-fast",
                 file_to_convert,
                 os.path.join(tile.build_dir, "textures", out_file_name),
-                devnull_rdir,
             ]
     else:
         (latmax, lonmin) = GEO.gtile_to_wgs84(til_x_left, til_y_top, zoomlevel)
