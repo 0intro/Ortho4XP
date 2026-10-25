@@ -248,12 +248,12 @@ def post_process_nodes_altitudes(tile):
     interp_alt_tris = set()
     for i in range(nbr_tri):
         line = f_ele.readline()
-        # triangle attributes are powers of 2, except for the dummy attributed
-        # which doesn't require post-treatment
-        if line[-2] == "0":
-            continue
         (v1, v2, v3, attr) = [int(x) - 1 for x in line.split()[1:5]]
         attr += 1
+        # triangle attributes are sums of powers of 2, except for the dummy
+        # attribute 0 which doesn't require post-treatment
+        if not attr:
+            continue
         if attr >= dico_attributes["INTERP_ALT"]:
             interp_alt_tris.add((v1, v2, v3))
         elif attr & dico_attributes["SEA"]:
