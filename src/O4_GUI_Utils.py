@@ -935,8 +935,8 @@ class Ortho4XP_Custom_ZL(tk.Toplevel):
         self.canvas.bind("<Control-ButtonPress-1>", self.newPol)
         self.canvas.focus_set()
         self.canvas.bind("p", self.newPoint)
-        self.canvas.bind("d", self.delete_zone_cmd)
-        self.canvas.bind("n", self.save_zone_cmd)
+        self.canvas.bind("d", lambda event: self.delete_zone_cmd())
+        self.canvas.bind("n", lambda event: self.save_zone_cmd())
         self.canvas.bind("<BackSpace>", self.delLast)
         self.polygon_list = []
         self.polyobj_list = []
@@ -1158,6 +1158,9 @@ class Ortho4XP_Custom_ZL(tk.Toplevel):
         return
 
     def extract_mesh_ifc(self):
+        if not self.polygon_list:
+            UI.vprint(0, "Extract Mesh needs a zone, add one with Ctrl+B1.")
+            return
         polygon = self.polygon_list[0]
         lat_bar = (polygon[1][0] + polygon[1][4]) / 2
         lon_bar = (polygon[1][1] + polygon[1][3]) / 2
@@ -1633,12 +1636,12 @@ class Ortho4XP_Earth_Preview(tk.Toplevel):
                     for (lat0, lon0) in self.dico_tiles_done:
                         if "dar" not in sys.platform:
                             self.canvas.itemconfig(
-                                self.dico_tiles_done[(lat, lon)][0],
+                                self.dico_tiles_done[(lat0, lon0)][0],
                                 stipple="gray50",
                             )
                         else:
                             self.canvas.itemconfig(
-                                self.dico_tiles_done[(lat, lon)][1],
+                                self.dico_tiles_done[(lat0, lon0)][1],
                                 font=("Helvetica", "12", "bold underline"),
                             )
         for (lat, lon) in self.dico_tiles_todo:
@@ -1773,12 +1776,12 @@ class Ortho4XP_Earth_Preview(tk.Toplevel):
                 for (lat0, lon0) in self.dico_tiles_done:
                     if not OsX:
                         self.canvas.itemconfig(
-                            self.dico_tiles_done[(lat, lon)][0],
+                            self.dico_tiles_done[(lat0, lon0)][0],
                             stipple="gray12",
                         )
                     else:
                         self.canvas.itemconfig(
-                            self.dico_tiles_done[(lat, lon)][1],
+                            self.dico_tiles_done[(lat0, lon0)][1],
                             font=("Helvetica", "12", "normal"),
                         )
                 return
@@ -1811,7 +1814,7 @@ class Ortho4XP_Earth_Preview(tk.Toplevel):
                     )
                 else:
                     self.canvas.itemconfig(
-                        self.dico_tiles_done[(lat, lon)][1],
+                        self.dico_tiles_done[(lat0, lon0)][1],
                         font=("Helvetica", "12", "bold underline"),
                     )
         return
