@@ -150,11 +150,13 @@ def write_osm(path, ways):
 
 def serve(jpeg):
     paths = []
+    agents = set()
     lock = threading.Lock()
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
             with lock:
                 paths.append(self.path)
+                agents.add(self.headers.get("User-Agent"))
             self.send_response(200)
             self.send_header("Content-Type", "image/jpeg")
             self.send_header("Content-Length", str(len(jpeg)))
@@ -164,7 +166,7 @@ def serve(jpeg):
             pass
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target = server.serve_forever, daemon = True).start()
-    return (server, paths)
+    return (server, paths, agents)
 
 # A request that leaves this machine fails at once.
 def offline_env():
@@ -207,7 +209,7 @@ def test_tile(work, top):
     image.save(f, "JPEG", quality = 95)
     jpeg = f.getvalue()
     served = numpy.asarray(Image.open(io.BytesIO(jpeg)), dtype = float).mean(axis = (0, 1))
-    (server, paths) = serve(jpeg)
+    (server, paths, agents) = serve(jpeg)
 
     os.makedirs(os.path.join(top, "Elevation_data"))
     write_dem(os.path.join(top, config["custom_dem"]))
@@ -220,6 +222,11 @@ def test_tile(work, top):
         f.write("grid_type=webmercator\n")
         f.write("url_template=http://127.0.0.1:" + str(server.server_port) + "/{zoom}/{x}/{y}.jpg\n")
         f.write("in_GUI=False\n")
+        f.write("fake_headers={'User-Agent': user_agent_ortho4xp}\n")
+    with open(os.path.join(top, "Providers", "Test", "EVIL.lay"), "w") as f:
+        f.write("url_template=http://127.0.0.1:9/{zoom}/{x}/{y}.jpg\n")
+        f.write("in_GUI=" + payload + "\n")
+        f.write("fake_headers={'User-Agent': " + payload + "}\n")
     build = os.path.join(top, "Tiles", "zOrtho4XP_" + tile)
     os.makedirs(build)
     with open(os.path.join(build, "Ortho4XP_" + tile + ".cfg"), "w") as f:
@@ -236,15 +243,18 @@ def test_tile(work, top):
 
     errors = []
     with open(log, encoding = "utf-8", errors = "replace") as f:
-        if "invalid line: skip_downloads=" not in f.read():
-            errors.append("Ortho4XP.cfg: no warning for a setting that holds code")
+        out = f.read()
+    if "invalid line: skip_downloads=" not in out:
+        errors.append("Ortho4XP.cfg: no warning for a setting that holds code")
+    if "fake headers for provider EVIL not valid" not in out:
+        errors.append("EVIL.lay: no warning for headers that hold code")
     legacy = os.path.join(work, "legacy.cfg")
     with open(legacy, "w") as f:
         for zone in config["zone_list"] + [payload]:
             f.write("zone_list.append(" + str(zone) + ")\n")
     errors += check("legacy", legacy_code, [legacy, repr(config["zone_list"])], work, top, log)
     if os.path.exists(os.path.join(top, "pwned")):
-        errors.append("config: a setting ran code")
+        errors.append("a config or provider file ran code")
     textures = sorted(glob.glob(os.path.join(build, "textures", "*.dds")))
     formats = {}
     for path in textures:
@@ -254,6 +264,8 @@ def test_tile(work, top):
         errors.append("textures: formats " + str(sorted(formats)) + ", want DXT1 and DXT5")
     if len(paths) != 256 * len(textures) or len(set(paths)) != len(paths):
         errors.append("server: " + str(len(paths)) + " requests (" + str(len(set(paths))) + " distinct) for " + str(len(textures)) + " textures, want 256 each")
+    if any(not str(agent).startswith("Ortho4XP/") for agent in agents):
+        errors.append("server: user agents " + str(sorted(map(str, agents))) + ", want Ortho4XP/")
     for path in formats.get("DXT1", [])[:1]:
         mean = numpy.asarray(Image.open(path).convert("RGB"), dtype = float).mean(axis = (0, 1))
         if numpy.abs(mean - served).max() > 6:

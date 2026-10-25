@@ -7,6 +7,7 @@ import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
 import O4_UI_Utils as UI
 import O4_Version
+import ast
 import time
 import os
 import sys
@@ -202,6 +203,28 @@ def initialize_color_filters_dict():
 ################################################################################
 
 ################################################################################
+def parse_headers(text):
+    # A dict literal of header names and values, where a value may also be
+    # the name user_agent_generic or user_agent_ortho4xp.
+    names = {
+        "user_agent_generic": user_agent_generic,
+        "user_agent_ortho4xp": user_agent_ortho4xp,
+    }
+    node = ast.parse(text, mode="eval").body
+    if not isinstance(node, ast.Dict):
+        raise ValueError("not a dict")
+    headers = {}
+    for (key, value) in zip(node.keys, node.values):
+        if isinstance(value, ast.Name) and value.id in names:
+            value = ast.Constant(names[value.id])
+        for n in (key, value):
+            if not isinstance(n, ast.Constant) or not isinstance(n.value, str):
+                raise ValueError("header names and values must be strings")
+        headers[key.value] = value.value
+    return headers
+
+
+################################################################################
 def initialize_providers_dict():
     for dir_name in os.listdir(FNAMES.Provider_dir):
         if not os.path.isdir(os.path.join(FNAMES.Provider_dir, dir_name)):
@@ -256,15 +279,8 @@ def initialize_providers_dict():
                     valid_provider = False
                 elif key == "fake_headers":
                     try:
-                        provider[key] = eval(value)
-                        if type(provider[key]) is not dict:
-                            print(
-                                "Definition of fake headers for provider",
-                                provider_code,
-                                "not valid.",
-                            )
-                            valid_provider = False
-                    except:
+                        provider[key] = parse_headers(value)
+                    except (SyntaxError, ValueError):
                         print(
                             "Definition of fake headers for provider",
                             provider_code,
@@ -286,20 +302,11 @@ def initialize_providers_dict():
                             )
                             valid_provider = False
                 elif key == "in_GUI":
-                    try:
-                        provider["in_GUI"] = eval(value)
-                        if not isinstance(provider["in_GUI"], bool):
-                            UI.vprint(
-                                0,
-                                "Error in GUI status for provider",
-                                provider_code,
-                            )
-                            provider["in_GUI"] = True
-                    except:
+                    if value not in ("True", "False"):
                         UI.vprint(
                             0, "Error in GUI status for provider", provider_code
                         )
-                        provider["in_GUI"] = True
+                    provider["in_GUI"] = value != "False"
                 elif key == "image_type":
                     pass
                 elif key == "url_prefix":
