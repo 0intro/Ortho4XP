@@ -1,7 +1,9 @@
+# Put a Dataforsyningen token (https://dataforsyningen.dk/) after api_key=.
 request_type=wms
 wms_size=512
 epsg_code=3857
 wms_version=1.1.1
-url_prefix=http://kortforsyningen.kms.dk/orto_foraar?TICKET=9854d8016b82278607978089147fe729&
+url_prefix=https://api.dataforsyningen.dk/orto_foraar_DAF?token={api_key}&
 layers=orto_foraar
+api_key=
 in_GUI=False

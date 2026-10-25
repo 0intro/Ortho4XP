@@ -1,5 +1,7 @@
+# Put a Mapy.com API key (https://developer.mapy.com/) after api_key=.
 request_type=tms
 grid_type=webmercator
-url_template=http://m{switch:1,2,3,4}.mapserver.mapy.cz/ophoto-m/{zoom}-{x}-{y}
+url_template=https://api.mapy.cz/v1/maptiles/aerial/256/{zoom}/{x}/{y}?apikey={api_key}
+api_key=
 imagery_dir=code
 in_GUI=False
