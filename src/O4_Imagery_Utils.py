@@ -1056,7 +1056,7 @@ def http_request_to_image(width, height, url, request_headers, http_session):
                     UI.vprint(3, url, r.headers)
                     return (0, "[404]")
             if ("[200]" in status_code) and (
-                "image" in r.headers["Content-Type"]
+                "image" in r.headers.get("Content-Type", "")
             ):
                 try:
                     small_image = Image.open(io.BytesIO(r.content))
