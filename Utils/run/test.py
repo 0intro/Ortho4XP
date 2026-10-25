@@ -151,6 +151,24 @@ subprocess.run([OVL.seven_zip(), "a", os.path.join(gs, "+45+005.7z"), dsf], stdo
 os.replace(os.path.join(gs, "+45+005.7z"), os.path.join(dsf_dir, "+45+005.dsf"))
 """
 
+# Step 3 with an overlay source DSF made of properties only.
+no_rasters_code = """
+import os
+import subprocess
+import O4_DSF_Utils as DSF
+import O4_Overlay_Utils as OVL
+OVL.custom_overlay_src = sys.argv[1]
+dsf_dir = os.path.join(OVL.custom_overlay_src, "Earth nav data", "+40+000")
+os.makedirs(dsf_dir)
+text = os.path.join(OVL.custom_overlay_src, "+45+005.txt")
+with open(text, "w") as f:
+    f.write("PROPERTY sim/west 5\\nPROPERTY sim/east 6\\nPROPERTY sim/north 46\\nPROPERTY sim/south 45\\n")
+subprocess.run([OVL.dsftool_cmd.strip(), "-text2dsf", text, os.path.join(dsf_dir, "+45+005.dsf")], stdout = subprocess.DEVNULL, check = True)
+rasters = DSF.extract_elevation_and_bathymetry_data(45, 5)
+if rasters != (b"", b""):
+    sys.exit("rasters " + repr(rasters)[:60] + ", want none")
+"""
+
 # Step 4: extract the overlays of the Global Scenery DSF.
 overlay_code = """
 import os
@@ -396,6 +414,7 @@ def test_tile(work, top):
             if line not in out:
                 errors.append(text + ": missing " + line)
     errors += check("overlay", overlay_code, [gs], work, top, log)
+    errors += check("norasters", no_rasters_code, [os.path.join(work, "Global Scenery 11")], work, top, log)
 
     mesh = os.path.join(work, "test.mesh")
     shutil.copy(os.path.join(build, "Data" + tile + ".mesh"), mesh)
