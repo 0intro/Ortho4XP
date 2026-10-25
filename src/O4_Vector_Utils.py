@@ -801,11 +801,11 @@ def ensure_MultiLineString(input_geometry):
         return geometry.MultiLineString([input_geometry])
     elif "Collection" in input_geometry.geom_type:
         return geometry.MultiLineString(
-            (
+            [
                 line
                 for line in input_geometry.geoms
                 if line.geom_type in ["LineString", "LinearRing"]
-            )
+            ]
         )
     else:
         return geometry.MultiLineString()
@@ -950,7 +950,7 @@ def coastline_to_MultiPolygon(coastline, lat, lon, custom_source=False):
             try:
                 bdcoords.remove(coord)
             except:
-                (x, y) = bd_point(coord)
+                (x, y) = bd_point(coord)[0]
                 UI.lvprint(
                     1,
                     "ERROR is OSM coastline data, probably caused by a ",
