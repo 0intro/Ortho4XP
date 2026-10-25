@@ -1450,8 +1450,8 @@ def build_texture_from_bbox_and_size(t_bbox, t_epsg, t_size, provider):
             - 1
         )
         if downscale >= 1:
-            width /= 2 ** downscale
-            height /= 2 ** downscale
+            width //= 2 ** downscale
+            height //= 2 ** downscale
             subt_size = (width, height)
         else:
             subt_size = None
