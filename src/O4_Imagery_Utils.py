@@ -85,6 +85,7 @@ else:
 ################################################################################
 
 providers_dict = {}
+providers_without_key = set()
 combined_providers_dict = {}
 local_combined_providers_dict = {}
 extents_dict = {"global": {"dir": None, "code": "global"}}
@@ -486,6 +487,16 @@ def initialize_providers_dict():
                     provider["resolutions"] = numpy.array(
                         [20037508.34 / (128 * 2 ** i) for i in range(0, 21)]
                     )
+                missing_key = False
+                for key in ("url_template", "url_prefix"):
+                    if "{api_key}" not in provider.get(key, ""):
+                        continue
+                    if provider.get("api_key"):
+                        provider[key] = provider[key].replace(
+                            "{api_key}", provider["api_key"]
+                        )
+                    else:
+                        missing_key = True
                 if "request_type" not in provider:
                     UI.vprint(
                         0,
@@ -493,6 +504,16 @@ def initialize_providers_dict():
                         "file for",
                         file_name,
                     )
+                elif missing_key:
+                    UI.vprint(
+                        2,
+                        "Provider",
+                        provider_code,
+                        "needs an api_key in",
+                        file_name,
+                        ", skipped.",
+                    )
+                    providers_without_key.add(provider_code)
                 else:
                     providers_dict[provider_code] = provider
             else:
@@ -524,12 +545,13 @@ def initialize_combined_providers_dict():
                     :-1
                 ].split()
                 if layer_code not in providers_dict:
-                    print(
-                        "Unknown provider in combined provider",
-                        provider_code,
-                        ":",
-                        layer_code,
-                    )
+                    if layer_code not in providers_without_key:
+                        print(
+                            "Unknown provider in combined provider",
+                            provider_code,
+                            ":",
+                            layer_code,
+                        )
                     continue
                 if extent_code == "default":
                     extent_code = providers_dict[layer_code]["extent"]
