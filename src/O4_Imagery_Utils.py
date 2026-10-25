@@ -2572,7 +2572,7 @@ def convert_texture(
                     )
                 except:
                     pass
-                return
+                return 0
             conv_cmd = [
                 gdalwarp_cmd,
                 "-of",
@@ -2621,7 +2621,7 @@ def convert_texture(
             os.remove(tmp_tif_file_name)
         except:
             pass
-    return
+    return tentative < 10
 
 
 ################################################################################

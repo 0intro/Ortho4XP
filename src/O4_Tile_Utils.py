@@ -18,7 +18,7 @@ skip_downloads = False
 skip_converts = False
 
 ################################################################################
-def download_textures(tile, download_queue, convert_queue):
+def download_textures(tile, download_queue, convert_queue, failed):
     UI.vprint(1, "-> Opening download queue.")
     done = 0
     while True:
@@ -26,7 +26,15 @@ def download_textures(tile, download_queue, convert_queue):
         if isinstance(texture_attributes, str) and texture_attributes == "quit":
             UI.progress_bar(2, 100)
             break
-        if IMG.build_jpeg_ortho(tile, *texture_attributes):
+        # A texture whose build raises fails too, and the exception goes
+        # on to threading.excepthook.
+        built = 0
+        try:
+            built = IMG.build_jpeg_ortho(tile, *texture_attributes)
+        finally:
+            if not built:
+                failed.append(texture_attributes)
+        if built:
             done += 1
             UI.progress_bar(
                 2, int(100 * done / (done + download_queue.qsize()))
@@ -113,12 +121,15 @@ def build_tile(tile):
     
     download_launched = False
     convert_launched = False
+    failed_downloads = []
+    converted = 1
 
     build_dsf_thread = threading.Thread(
         target=DSF.build_dsf, args=[tile, download_queue]
     )
     download_thread = threading.Thread(
-        target=download_textures, args=[tile, download_queue, convert_queue]
+        target=download_textures,
+        args=[tile, download_queue, convert_queue, failed_downloads],
     )
     build_dsf_thread.start()
     if not skip_downloads:
@@ -146,11 +157,15 @@ def build_tile(tile):
         if convert_launched:
             for _ in range(max_convert_slots):
                 convert_queue.put("quit")
-            parallel_join(convert_workers)
+            converted = parallel_join(convert_workers)
             if UI.red_flag:
                 UI.vprint(1, "DDS conversion process interrupted.")
             elif dico_conv_progress["done"] >= 1:
                 UI.vprint(1, " *DDS conversion of textures completed.")
+    # build_dsf stops with part of the DSF written, which stays inactive.
+    if UI.red_flag:
+        UI.exit_message_and_bottom_line()
+        return 0
     UI.vprint(1, " *Activating DSF file.")
     dsf_file_name = os.path.join(
         tile.build_dir,
@@ -159,10 +174,14 @@ def build_tile(tile):
     )
     try:
         os.replace(dsf_file_name + ".tmp", dsf_file_name)
+        activated = True
     except:
         UI.vprint(0, "ERROR : could not rename DSF file, tile is not actived.")
-    if UI.red_flag:
-        UI.exit_message_and_bottom_line()
+        activated = False
+    if not activated or failed_downloads or not converted:
+        UI.exit_message_and_bottom_line(
+            "\nERROR: Some textures or the DSF could not be built, see above."
+        )
         return 0
     if UI.cleaning_level > 1:
         try:

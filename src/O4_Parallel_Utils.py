@@ -3,7 +3,7 @@ import O4_UI_Utils as UI
 
 ################################################################################
 class parallel_worker(threading.Thread):
-    def __init__(self, task, queue, progress=None, success=[1]):
+    def __init__(self, task, queue, progress, success):
         threading.Thread.__init__(self)
         self._task = task
         self._queue = queue
@@ -19,7 +19,14 @@ class parallel_worker(threading.Thread):
                 except:
                     pass
                 return 1
-            self._success[0] = self._task(*args) and self._success[0]
+            # A task that raises fails too, and its exception goes on to
+            # threading.excepthook.
+            done = 0
+            try:
+                done = self._task(*args)
+            finally:
+                if not done:
+                    self._success[0] = 0
             if self._progress:
                 self._progress["done"] += 1
                 UI.progress_bar(
@@ -52,8 +59,9 @@ def parallel_execute(task, queue, nbr_workers, progress=None):
 ################################################################################
 def parallel_launch(task, queue, nbr_workers, progress=None):
     workers = []
+    success = [1]
     for _ in range(nbr_workers):
-        worker = parallel_worker(task, queue, progress)
+        worker = parallel_worker(task, queue, progress, success)
         worker.start()
         workers.append(worker)
     return workers
@@ -62,3 +70,4 @@ def parallel_launch(task, queue, nbr_workers, progress=None):
 def parallel_join(workers):
     for worker in workers:
         worker.join()
+    return workers[0]._success[0] if workers else 1
