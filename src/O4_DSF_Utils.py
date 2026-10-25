@@ -1055,9 +1055,6 @@ def build_dsf(tile, download_queue):
         "Earth nav data",
         FNAMES.long_latlon(tile.lat, tile.lon) + ".dsf",
     )
-    
-    if os.path.exists(dsf_file_name):
-        os.replace(dsf_file_name, dsf_file_name + ".bak")
 
     # Note: present code should always choose the first branch.
     if bPROP == b"":
