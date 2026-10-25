@@ -1,5 +1,6 @@
-#wego.here.com
-#custom url due to changing http values
+# Put a HERE API key (https://platform.here.com/) after api_key=.
 grid_type=webmercator
+url_template=https://maps.hereapi.com/v3/background/mc/{zoom}/{x}/{y}/jpeg?style=satellite.day&size=256&apiKey={api_key}
+api_key=
 max_threads=16
 imagery_dir=grouped
