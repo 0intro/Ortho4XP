@@ -2578,7 +2578,7 @@ def convert_texture(
             pass
     if erase_tmp_tif:
         try:
-            os.remove(os.path.join(UI.Ortho4XP_dir, "tmp", png_file_name))
+            os.remove(tmp_tif_file_name)
         except:
             pass
     return
