@@ -2112,8 +2112,7 @@ def color_transform(im, color_code):
     try:
         for color_filter in color_filters_dict[color_code]:
             # both range from -127 to 127,
-            # http://gimp.sourcearchive.com/documentation/2.6.1/\
-            # gimpbrightnesscontrastconfig_8c-source.html
+            # https://gitlab.gnome.org/GNOME/gimp/-/blob/gimp-2-6/app/gegl/gimpbrightnesscontrastconfig.c
             if color_filter[0] == "brightness-contrast":
                 (brightness, contrast) = color_filter[1:3]
                 if brightness >= 0:
