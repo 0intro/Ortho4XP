@@ -8,6 +8,12 @@ set(CMAKE_VERBOSE_MAKEFILE OFF)
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE OFF)
 
+# Static programs run on any Linux distribution and any Windows.
+# macOS supports only dynamic linking.
+if(NOT APPLE)
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static")
+endif()
+
 add_executable(Triangle4XP src/Triangle4XP.c)
 target_link_libraries(Triangle4XP m)
 
