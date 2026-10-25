@@ -7,20 +7,17 @@ import shutil
 
 import configure
 
-def parse_args():
-    build_type = "release"
-    for arg in sys.argv[1:]:
-        if arg.lower() == "debug":
-            build_type = "debug"
-    return build_type
-
-build_type = parse_args()
-
-for cfg in configure.all_cfg:
-    dst = os.path.join(cfg["dir"])
+def install(src, utils_dir, cfg):
+    dst = os.path.join(utils_dir, cfg["dir"])
     os.makedirs(dst, exist_ok = True)
-    src = os.path.join("build", build_type, cfg["dir"], "Triangle4XP" + cfg["suff"])
-    shutil.copy2(src, dst)
+    for name in ("Triangle4XP", "triangle"):
+        shutil.copy2(os.path.join(src, name + cfg["suff"]), dst)
+    if cfg["dir"] == "win":
+        dst = os.path.join(dst, "nvcompress")
+    shutil.copy2(os.path.join(src, "nvcompress" + cfg["suff"]), dst)
+    shutil.copy2(os.path.join(src, "nvtt-LICENSE.txt"), dst)
 
-
-
+if __name__ == "__main__":
+    (build_type, os_cfg) = configure.parse_args(sys.argv)
+    for cfg in os_cfg:
+        install(configure.build_dir(build_type, cfg), configure.utils_dir, cfg)
