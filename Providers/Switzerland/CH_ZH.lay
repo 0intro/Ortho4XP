@@ -1,8 +1,8 @@
 request_type=wms
 epsg_code=2056
 #epsg_code=3857
-wms_version=1.0.0
+wms_version=1.1.1
 wms_size=1024
 layers=ortho
-url_prefix=http://wms.zh.ch/OGDOrthoZH?
+url_prefix=https://wms.zh.ch/OrthoZHWMS?
 in_GUI=False

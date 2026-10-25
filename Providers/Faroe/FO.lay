@@ -1,5 +1,8 @@
 request_type=tms
-grid_type=webmercator
-url_template=http://www.kortal.fo/background/gwc/service/tms/1.0.0/FDS:Mynd_Verdin@EPSG:900913@jpg/{zoom}/{x}/{-y}.jpeg
+epsg_code=5316
+top_left_corner=-5423100 4002100
+resolutions=1083.735500804335 543.984421302176 270.93387520108377 135.46693760054188 67.73346880027094 33.86673440013547 16.933367200067735 8.466683600033868 4.233341800016934 2.116670900008467 1.0583354500042335 0.5291677250021167 0.26458386250105836 0.13229193125052918 0.06614596562526459
+tile_size=256
+url_template=https://gis.us.fo/arcgis/rest/services/myndakort/myndakort_fotm/MapServer/tile/{zoom}/{y}/{x}
 imagery_dir=code
 in_GUI=False
