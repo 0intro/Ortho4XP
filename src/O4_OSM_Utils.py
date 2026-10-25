@@ -8,12 +8,10 @@ import numpy
 from shapely import geometry, ops
 import O4_UI_Utils as UI
 import O4_File_Names as FNAMES
+import O4_Version
 
 overpass_servers = {
-    "DE": "http://overpass-api.de/api/interpreter",
-    "FR": "http://api.openstreetmap.fr/oapi/interpreter",
-    "KU": "https://overpass.kumi.systems/api/interpreter",
-    "RU": "http://overpass.osm.rambler.ru/cgi/interpreter",
+    "DE": "https://overpass-api.de/api/interpreter",
 }
 overpass_server_choice = "DE"
 max_osm_tentatives = 8
@@ -517,9 +515,9 @@ def get_overpass_data(query, bbox, server_code=None):
         true_server_code = server_code
         if not server_code:
             true_server_code = (
-                random.choice(list(overpass_servers.keys()))
-                if overpass_server_choice == "random"
-                else overpass_server_choice
+                overpass_server_choice
+                if overpass_server_choice in overpass_servers
+                else random.choice(list(overpass_servers.keys()))
             )
         base_url = overpass_servers[true_server_code]
         if isinstance(query, str):
@@ -529,7 +527,11 @@ def get_overpass_data(query, bbox, server_code=None):
         url = base_url + "?data=(" + overpass_query + ");(._;>>;);out meta;"
         UI.vprint(3, url)
         try:
-            r = s.get(url, timeout=60)
+            r = s.get(
+                url,
+                timeout=(10, 180),
+                headers={"User-Agent": O4_Version.user_agent},
+            )
             UI.vprint(3, "OSM response status :", r)
             if "200" in str(r):
                 if (
