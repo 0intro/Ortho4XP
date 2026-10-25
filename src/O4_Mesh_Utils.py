@@ -12,23 +12,21 @@ import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
 import O4_Vector_Utils as VECT
 import O4_OSM_Utils as OSM
+import O4_Overlay_Utils as OVL
 import O4_Version
 
 if "dar" in sys.platform:
     Triangle4XP_cmd = os.path.join(FNAMES.Utils_dir, "mac", "Triangle4XP ")
     triangle_cmd = os.path.join(FNAMES.Utils_dir, "mac", "triangle ")
     sort_mesh_cmd = os.path.join(FNAMES.Utils_dir, "mac", "moulinette ")
-    unzip_cmd = "7z "
 elif "win" in sys.platform:
     Triangle4XP_cmd = os.path.join(FNAMES.Utils_dir, "win", "Triangle4XP.exe ")
     triangle_cmd = os.path.join(FNAMES.Utils_dir, "win", "triangle.exe ")
     sort_mesh_cmd = os.path.join(FNAMES.Utils_dir, "win", "moulinette.exe ")
-    unzip_cmd = os.path.join(FNAMES.Utils_dir, "win", "7z.exe ")
 else:
     Triangle4XP_cmd = os.path.join(FNAMES.Utils_dir, "lin", "Triangle4XP ")
     triangle_cmd = os.path.join(FNAMES.Utils_dir, "lin", "triangle ")
     sort_mesh_cmd = os.path.join(FNAMES.Utils_dir, "lin", "moulinette ")
-    unzip_cmd = "7z "
 
 
 community_server = False
@@ -76,15 +74,9 @@ def community_mesh(tile):
             )
             f.write(r.content)
             f.close()
-            if subprocess.call(
-                [
-                    unzip_cmd.strip(),
-                    "e",
-                    "-y",
-                    "-o" + tile.build_dir,
-                    FNAMES.mesh_file(tile.build_dir, tile.lat, tile.lon)
-                    + ".7z",
-                ]
+            if not OVL.extract_7z(
+                FNAMES.mesh_file(tile.build_dir, tile.lat, tile.lon) + ".7z",
+                tile.build_dir,
             ):
                 UI.exit_message_and_bottom_line(
                     "\nERROR: Could not extract community_mesh from archive."

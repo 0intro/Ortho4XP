@@ -84,6 +84,33 @@ if tile.zone_list != ast.literal_eval(sys.argv[2]):
     sys.exit("zones " + repr(tile.zone_list) + ", want " + sys.argv[2])
 """
 
+# 7-Zip as Ortho4XP finds it, and on Windows, the 7-Zip installed in
+# Program Files when the one in Utils is missing.
+seven_zip_code = """
+import os
+import subprocess
+import O4_Overlay_Utils as OVL
+cmd = OVL.seven_zip()
+if not cmd:
+    sys.exit("7-Zip not found")
+with open("7z.txt", "w") as f:
+    f.write("Ortho4XP")
+subprocess.run([cmd, "a", "7z.7z", "7z.txt"], stdout = subprocess.DEVNULL, check = True)
+os.remove("7z.txt")
+if not OVL.extract_7z("7z.7z", "tmp"):
+    sys.exit(cmd + ": could not extract 7z.7z")
+with open(os.path.join("tmp", "7z.txt")) as f:
+    if f.read() != "Ortho4XP":
+        sys.exit(cmd + ": extracted the wrong data")
+installed = os.path.join(os.environ.get("ProgramFiles", ""), "7-Zip", "7z.exe")
+if sys.platform == "win32" and cmd == OVL.seven_zip_bundled and os.path.isfile(installed):
+    os.rename(cmd, cmd + ".hidden")
+    found = OVL.seven_zip()
+    os.rename(cmd + ".hidden", cmd)
+    if found != installed:
+        sys.exit("7-Zip: found " + str(found) + " without Utils, want " + installed)
+"""
+
 # The GUI, driven in-process.
 gui_code = """
 import os
@@ -263,6 +290,7 @@ def test_tile(work, top):
         for zone in config["zone_list"] + [payload]:
             f.write("zone_list.append(" + str(zone) + ")\n")
     errors += check("legacy", legacy_code, [legacy, repr(config["zone_list"])], work, top, log)
+    errors += check("7z", seven_zip_code, [], work, top, log)
     if os.path.exists(os.path.join(top, "pwned")):
         errors.append("a config or provider file ran code")
     textures = sorted(glob.glob(os.path.join(build, "textures", "*.dds")))

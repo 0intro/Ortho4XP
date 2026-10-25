@@ -77,7 +77,7 @@ jobs:
     steps:
       - name: Install Python and Xvfb
         run: >
-          dnf -y install git python3.15 python3.15-tkinter
+          dnf -y install git python3.15 python3.15-tkinter 7zip
           xorg-x11-server-Xvfb xorg-x11-xauth dejavu-sans-fonts
       - uses: actions/checkout@v7
       - name: Install the requirements
