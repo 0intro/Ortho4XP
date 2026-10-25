@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import os
 import sys
 sys.dont_write_bytecode = True
 
@@ -13,7 +12,5 @@ if __name__ == "__main__":
         print("--------------------------------------------------------")
         print("Building Ortho4XP C executables in {:s} mode for {:s}.".format(build_type, cfg["name"]))
         print("--------------------------------------------------------")
-        cmd =  "cmake --build build/" + build_type.lower() + "/" + cfg["dir"]
-        print("Executing : " + cmd)
-        os.system(cmd)
+        configure.run(["cmake", "--build", configure.build_dir(build_type, cfg)])
         print("Build done for " + cfg["name"] + ".")

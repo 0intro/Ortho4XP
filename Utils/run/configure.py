@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 
 import os
+import subprocess
 import sys
 sys.dont_write_bytecode = True
+
+utils_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 lin_cfg = { 
         "name":"Linux",
@@ -15,14 +18,14 @@ mac_cfg = {
         "name":"OSX",
         "dir":"mac",
         "suff":"",
-        "toolchain":"./toolchains/osxcross-on-linux.cmake"
+        "toolchain":"osxcross-on-linux.cmake"
       }
 
 win_cfg = { 
         "name":"Windows",
         "dir":"win",
         "suff":".exe",
-        "toolchain":"./toolchains/mingw-on-linux.cmake"
+        "toolchain":"mingw-on-linux.cmake"
       }
 
 all_cfg = [lin_cfg, mac_cfg, win_cfg]
@@ -50,6 +53,15 @@ def parse_args(argv):
         os_cfg = all_cfg
     return (build_type, os_cfg)
 
+def build_dir(build_type, cfg):
+    return os.path.join(utils_dir, "build", build_type.lower(), cfg["dir"])
+
+def run(cmd):
+    print("Executing : " + " ".join(cmd))
+    status = subprocess.call(cmd)
+    if status:
+        sys.exit(cmd[0] + " exited with status " + str(status))
+
    
 if __name__ == "__main__":
     (build_type, os_cfg) = parse_args(sys.argv)
@@ -58,11 +70,9 @@ if __name__ == "__main__":
         print("--------------------------------------------------------")
         print("Configurating Ortho4XP C executables {:s} mode for {:s}.".format(build_type, cfg["name"]))
         print("--------------------------------------------------------")
-        cmd =  "cmake"
-        if cfg["toolchain"]: 
-            cmd += " -DCMAKE_TOOLCHAIN_FILE=" + cfg["toolchain"]
-        cmd += " -DCMAKE_BUILD_TYPE=" + build_type
-        cmd += " -B build/" + build_type.lower() + "/" + cfg["dir"]
-        print("Executing : " + cmd)
-        os.system(cmd)
+        cmd = ["cmake", "-S", utils_dir, "-B", build_dir(build_type, cfg)]
+        if cfg["toolchain"]:
+            cmd.append("-DCMAKE_TOOLCHAIN_FILE=" + os.path.join(utils_dir, "toolchains", cfg["toolchain"]))
+        cmd.append("-DCMAKE_BUILD_TYPE=" + build_type)
+        run(cmd)
         print("Configuration done for " + cfg["name"] + ".")
