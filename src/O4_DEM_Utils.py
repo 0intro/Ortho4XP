@@ -299,8 +299,8 @@ class DEM:
         y = numpy.minimum.reduce([y, self.y1 * numpy.ones(y.shape)])
         px = (x - self.x0) / (self.x1 - self.x0) * Nx
         py = (y - self.y0) / (self.y1 - self.y0) * Ny
-        nx = px.astype(numpy.uint16)
-        Nminusny = Ny - py.astype(numpy.uint16)
+        nx = px.astype(numpy.int64)
+        Nminusny = Ny - py.astype(numpy.int64)
         rx = px - nx
         ry = py + Nminusny - Ny
         t1 = [self.alt_dem[i][j] for i, j in zip(Nminusny, nx)]
@@ -328,10 +328,10 @@ class DEM:
         mask = (x >= self.x0) * (x <= self.x1) * (y >= self.y0) * (y <= self.y1)
         nx = numpy.round(
             (x - self.x0) / (self.x1 - self.x0) * (self.nxdem - 1)
-        ).astype(numpy.uint16)
+        ).astype(numpy.int64)
         Nminusny = numpy.round(
             (self.y1 - y) / (self.y1 - self.y0) * (self.nydem - 1)
-        ).astype(numpy.uint16)
+        ).astype(numpy.int64)
         return numpy.array(
             [
                 self.alt_dem[i][j] if k else self.nodata
