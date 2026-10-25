@@ -632,8 +632,8 @@ def ensure_elevation(source, lat, lon, verbose=True):
         ):
             resol = 1
             url = (
-                "http://viewfinderpanoramas.org/dem1/"
-                + os.path.basename(FNAMES.base_file_name(lat, lon)).lower()
+                "https://viewfinderpanoramas.org/dem1/"
+                + os.path.basename(FNAMES.base_file_name(lat, lon))
                 + ".zip"
             )
         else:
@@ -676,7 +676,7 @@ def ensure_elevation(source, lat, lon, verbose=True):
             else:
                 resol = 3
             url = (
-                "http://viewfinderpanoramas.org/dem"
+                "https://viewfinderpanoramas.org/dem"
                 + str(resol)
                 + "/"
                 + deferranti_letter
@@ -741,44 +741,6 @@ def ensure_elevation(source, lat, lon, verbose=True):
             "    WARNING : This elevation source has no longer direct downloads !"
         )
         return 0
-        # TODO : is there a way to get it back (worth it ?) 
-        url = "https://cloud.sdsc.edu/v1/AUTH_opentopography/Raster/"
-        if source == "SRTM":
-            url += "SRTM_GL1/SRTM_GL1_srtm/"
-            if lat < -60 or lat >= 60:
-                return 0
-            if lat < 0:
-                url += "South/"
-            elif lat <= 29:
-                url += "North/North_0_29/"
-            else:
-                url += "North/North_30_60/"
-            url += os.path.basename(FNAMES.viewfinderpanorama(lat, lon))
-        elif source == "ALOS":
-            url += "AW3D30/AW3D30_alos/"
-            if lat < 0:
-                url += "South/"
-            elif lat <= 45:
-                url += "North/North_0_45/"
-            else:
-                url += "North/North_46_90/"
-            tmp = os.path.basename(FNAMES.base_file_name(lat, lon))
-            tmp = tmp[0] + "0" + tmp[1:] + "_AVE_DSM.tif"
-            url += tmp
-        r = http_request(url, source, verbose)
-        if not r:
-            return 0
-        if not os.path.isdir(
-            os.path.dirname(FNAMES.elevation_data(source, lat, lon))
-        ):
-            os.makedirs(
-                os.path.dirname(FNAMES.elevation_data(source, lat, lon))
-            )
-        with open(FNAMES.elevation_data(source, lat, lon), "wb") as out:
-            try:
-                out.write(r.content)
-            except:
-                return 0
     elif source in ("NED1", "NED1/3"):
         if os.path.exists(FNAMES.elevation_data(source, lat, lon)):
             UI.vprint(
@@ -797,9 +759,9 @@ def ensure_elevation(source, lat, lon, verbose=True):
             + nbr + "/TIFF/current/"
         )
         tid = "n" if lat >= 0 else "s"
-        tid = tid + str(abs(lat + 1)).zfill(2)
-        tid = tid + "w" if lon < 0 else "e"
-        tid = tid + str(abs(lon)).zfill(3)
+        tid += str(abs(lat + 1)).zfill(2)
+        tid += "w" if lon < 0 else "e"
+        tid += str(abs(lon)).zfill(3)
         url_base = url_base + tid + "/"
         usgs_name = (
             "USGS_" + nbr + "_" + tid + ".tif"
