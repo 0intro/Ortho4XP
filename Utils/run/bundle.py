@@ -47,6 +47,12 @@ targets = {
     },
 }
 
+seven_zip_url = "https://github.com/ip7z/7zip/releases/download/26.05/"
+seven_zip = {
+    "lin": ("7z2605-linux-x64.tar.xz", "22cf82fcc6eb7474f1d5bb4f02c0f8ebd573a718089d6833dc30f8350a3b232e"),
+    "win": ("7z2605-x64.exe", "fd99e86f57d8f429ef5ed045bf98315af962e2309b0f1ba87a147a44c71647d0"),
+}
+
 # The launchers keep the user's Python and Tcl settings away from the
 # bundled Python.
 launchers = {
@@ -135,6 +141,19 @@ def check_pe(top):
                 errors.append(path + " needs " + dll)
     return errors
 
+# Puts 7-Zip in utils: the static 7zzs as 7zz for Linux, and for Windows
+# 7z.exe with 7z.dll, which 7zzs unpacks from the installer.
+def install_7zip(stage, utils, system):
+    (name, sha256) = seven_zip["lin"]
+    with tarfile.open(download(seven_zip_url + name, sha256)) as tar:
+        tar.extractall(stage, members = [tar.getmember("7zzs"), tar.getmember("License.txt")], filter = "data")
+    if system == "lin":
+        shutil.copy2(os.path.join(stage, "7zzs"), os.path.join(utils, "7zz"))
+    else:
+        (name, sha256) = seven_zip["win"]
+        configure.run([os.path.join(stage, "7zzs"), "x", "-y", "-bso0", "-o" + utils, download(seven_zip_url + name, sha256), "7z.exe", "7z.dll"])
+    shutil.copy2(os.path.join(stage, "License.txt"), os.path.join(utils, "7-Zip-License.txt"))
+
 def write_tar(path, top, mtime):
     def reset(info):
         info.uid = info.gid = 0
@@ -182,6 +201,7 @@ if __name__ == "__main__":
         if dir != cfg["dir"]:
             shutil.rmtree(os.path.join(top, "Utils", dir))
     install.install(configure.build_dir("Release", cfg), os.path.join(top, "Utils"), cfg)
+    install_7zip(stage, os.path.join(top, "Utils", cfg["dir"]), cfg["dir"])
     if cfg["dir"] == "win":
         os.remove(os.path.join(top, "Utils", "win", "nvcompress", "nvtt.dll"))
         for dll in mingw_dlls:
