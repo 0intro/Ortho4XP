@@ -6,6 +6,7 @@ import O4_Vector_Utils as VECT
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
 import O4_UI_Utils as UI
+import O4_Version
 import time
 import os
 import sys
@@ -46,6 +47,7 @@ max_baddata_retries = 10
 user_agent_generic = (
     "Mozilla/5.0 (X11; Linux x86_64; rv:52.0) Gecko/20100101 Firefox/52.0"
 )
+user_agent_ortho4xp = O4_Version.user_agent
 request_headers_generic = {
     "User-Agent": user_agent_generic,
     "Accept": "*/*",

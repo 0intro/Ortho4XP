@@ -1,4 +1,4 @@
 grid_type=webmercator
 url_template=https://tile.openstreetmap.org/{zoom}/{x}/{y}.png
 max_threads=2
-fake_headers={'User-Agent': user_agent_generic, 'Referer': 'https://www.openstreetmap.org/', 'Connection': 'keep-alive', 'Accept': 'image/png'}
+fake_headers={'User-Agent': user_agent_ortho4xp}
