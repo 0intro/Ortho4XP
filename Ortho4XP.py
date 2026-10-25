@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import sys
 import os
+if not getattr(sys,'frozen',False):
+    os.chdir(os.path.dirname(os.path.abspath(__file__)))
 Ortho4XP_dir='..' if getattr(sys,'frozen',False) else '.'
 sys.path.append(os.path.join(Ortho4XP_dir,'src'))
 
