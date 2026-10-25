@@ -391,6 +391,8 @@ def extract_elevation_and_bathymetry_data(lat, lon):
     # read atoms
     atoms_len = file_len - 12 - 16  # 12 for HDR and 16 for MD5
     atoms_consumed = 0
+    # Rasters are optional in a DSF.
+    bDEMN = bDEMS = b""
     while atoms_consumed < atoms_len:
         atom_hdr = f.read(4).decode("ascii")
         atom_len = struct.unpack("<I", f.read(4))[0]
