@@ -111,6 +111,14 @@ class OSM_layer:
                 if not input_tags:
                     self.dicosmfirst["w"].add(osmid)
             elif "<nd ref=" in items[0]:
+                if items[1] not in dicosmn_id_map:
+                    UI.lvprint(
+                        0,
+                        "ERROR: OSM data was corrupted (undefined node",
+                        items[1] + ")",
+                    )
+                    pfile.close()
+                    return 0
                 self.dicosmw[osmid].append(dicosmn_id_map[items[1]])
             elif "<relation id=" in items[0]:
                 osmtype = "r"
@@ -429,9 +437,10 @@ def OSM_queries_to_OSM_layer(
             old_cached_data_filename = FNAMES.osm_old_cached(lat, lon, query)
             if os.path.isfile(old_cached_data_filename):
                 UI.vprint(1, "    * Recycling OSM data for", query)
-                osm_layer.update_dicosm(
+                if not osm_layer.update_dicosm(
                     old_cached_data_filename, input_tags, target_tags
-                )
+                ):
+                    return 0
                 continue
         UI.vprint(1, "    * Downloading OSM data for", query)
         response = get_overpass_data(
@@ -454,7 +463,8 @@ def OSM_queries_to_OSM_layer(
                 ", skipping it.",
             )
             return 0
-        osm_layer.update_dicosm(response, input_tags, target_tags)
+        if not osm_layer.update_dicosm(response, input_tags, target_tags):
+            return 0
     if cached_suffix:
         osm_layer.write_to_file(cached_data_filename)
     return 1
@@ -487,7 +497,8 @@ def OSM_query_to_OSM_layer(
                 target_tags[osm_type].append(tag)
     if cached_file_name and os.path.isfile(cached_file_name):
         UI.vprint(1, "    * Recycling OSM data from", cached_file_name)
-        osm_layer.update_dicosm(cached_file_name, input_tags, target_tags)
+        if not osm_layer.update_dicosm(cached_file_name, input_tags, target_tags):
+            return 0
     else:
         response = get_overpass_data(query, bbox, server_code)
         if UI.red_flag:
@@ -502,7 +513,8 @@ def OSM_query_to_OSM_layer(
                 ", skipping it.",
             )
             return 0
-        osm_layer.update_dicosm(response, input_tags, target_tags)
+        if not osm_layer.update_dicosm(response, input_tags, target_tags):
+            return 0
         if cached_file_name:
             osm_layer.write_to_file(cached_file_name)
     return 1
