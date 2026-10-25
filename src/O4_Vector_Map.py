@@ -369,9 +369,10 @@ def include_sea(vector_map, tile):
     custom_coastline_dir = FNAMES.custom_coastline_dir(tile.lat, tile.lon)
     if os.path.isfile(custom_coastline):
         UI.vprint(1, "    * User defined custom coastline data detected.")
-        sea_layer.update_dicosm(
+        if not sea_layer.update_dicosm(
             custom_coastline, input_tags=None, target_tags=None
-        )
+        ):
+            return 0
         custom_source = True
     elif os.path.isdir(custom_coastline_dir):
         UI.vprint(
@@ -381,12 +382,13 @@ def include_sea(vector_map, tile):
         )
         for osm_file in os.listdir(custom_coastline_dir):
             UI.vprint(2, "      ", osm_file)
-            sea_layer.update_dicosm(
+            if not sea_layer.update_dicosm(
                 os.path.join(custom_coastline_dir, osm_file),
                 input_tags=None,
                 target_tags=None,
-            )
-            sea_layer.write_to_file(custom_coastline)
+            ):
+                return 0
+        sea_layer.write_to_file(custom_coastline)
         custom_source = True
     else:
         queries = ['way["natural"="coastline"]']
@@ -508,21 +510,23 @@ def include_water(vector_map, tile):
     custom_water_dir = FNAMES.custom_water_dir(tile.lat, tile.lon)
     if os.path.isfile(custom_water):
         UI.vprint(1, "    * User defined custom water data detected.")
-        water_layer.update_dicosm(
+        if not water_layer.update_dicosm(
             custom_water, input_tags=None, target_tags=None
-        )
+        ):
+            return 0
     elif os.path.isdir(custom_water_dir):
         UI.vprint(
             1, "    * User defined custom water data detected (multiple files)."
         )
         for osm_file in os.listdir(custom_water_dir):
             UI.vprint(2, "      ", osm_file)
-            water_layer.update_dicosm(
+            if not water_layer.update_dicosm(
                 os.path.join(custom_water_dir, osm_file),
                 input_tags=None,
                 target_tags=None,
-            )
-            water_layer.write_to_file(custom_water)
+            ):
+                return 0
+        water_layer.write_to_file(custom_water)
     else:
         queries = [
             'rel["natural"="water"]',

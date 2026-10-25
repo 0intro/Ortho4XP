@@ -168,9 +168,10 @@ def build_curv_tol_weight_map(tile, weight_array):
         custom_coastline_dir = FNAMES.custom_coastline_dir(tile.lat, tile.lon)
         if os.path.isfile(custom_coastline):
             UI.vprint(1, "    * User defined custom coastline data detected.")
-            sea_layer.update_dicosm(
+            if not sea_layer.update_dicosm(
                 custom_coastline, input_tags=None, target_tags=None
-            )
+            ):
+                return 0
         elif os.path.isdir(custom_coastline_dir):
             UI.vprint(
                 1,
@@ -179,12 +180,13 @@ def build_curv_tol_weight_map(tile, weight_array):
             )
             for osm_file in os.listdir(custom_coastline_dir):
                 UI.vprint(2, "      ", osm_file)
-                sea_layer.update_dicosm(
+                if not sea_layer.update_dicosm(
                     os.path.join(custom_coastline_dir, osm_file),
                     input_tags=None,
                     target_tags=None,
-                )
-                sea_layer.write_to_file(custom_coastline)
+                ):
+                    return 0
+            sea_layer.write_to_file(custom_coastline)
         else:
             queries = ['way["natural"="coastline"]']
             tags_of_interest = []
@@ -223,7 +225,7 @@ def build_curv_tol_weight_map(tile, weight_array):
     # editing from PIL import Image
     # Image.fromarray((weight_array!=1).astype(numpy.uint8)*255).save(
     # 'weight.png')
-    return
+    return 1
 
 
 ################################################################################
@@ -652,7 +654,12 @@ def build_mesh(tile):
     Tri_option = "-pq" + "{:.9g}".format(tile.min_angle) + tri_switches
 
     weight_array = numpy.ones((1001, 1001), dtype=numpy.float32)
-    build_curv_tol_weight_map(tile, weight_array)
+    if not build_curv_tol_weight_map(tile, weight_array):
+        UI.exit_message_and_bottom_line(
+            "\nERROR: Could not obtain or process the OSM data for the "
+            "coastline."
+        )
+        return 0
     weight_array.tofile(weight_file)
     del weight_array
 
