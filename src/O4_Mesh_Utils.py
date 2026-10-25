@@ -648,10 +648,8 @@ def build_mesh(tile):
     max_steiner = max(max_steiner, 5e5)
 
     limit_tris = "S" + str(max_steiner)
-    Tri_option = (
-        "-pq" + "{:.9g}".format(tile.min_angle) + do_refine + 
-        "uYB" + tri_verbosity + output_poly + limit_tris
-    )
+    tri_switches = do_refine + "uYB" + tri_verbosity + output_poly + limit_tris
+    Tri_option = "-pq" + "{:.9g}".format(tile.min_angle) + tri_switches
 
     weight_array = numpy.ones((1001, 1001), dtype=numpy.float32)
     build_curv_tol_weight_map(tile, weight_array)
@@ -708,7 +706,7 @@ def build_mesh(tile):
             "It will be tempted now with no angle constraint ",
             "(i.e. min_angle=0).",
         )
-        mesh_cmd[-5] = "{:.9g}".format(0)
+        mesh_cmd[1] = "-pq0" + tri_switches
         fingers_crossed = subprocess.Popen(
             mesh_cmd, stdout=subprocess.PIPE, bufsize=0
         )
