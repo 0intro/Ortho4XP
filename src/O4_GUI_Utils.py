@@ -4,6 +4,7 @@ import shutil
 from math import floor, cos, pi
 import queue
 import threading
+import traceback
 import tkinter as tk
 from tkinter import (
     RIDGE,
@@ -37,6 +38,23 @@ import O4_Config_Utils as CFG
 # Set OsX=True if you prefer the OsX way of drawing existing tiles but 
 # are on Linux or Windows.
 OsX = "dar" in sys.platform
+
+################################################################################
+def run_step(step, *args):
+    # Steps clear UI.is_working only when they return, so an exception
+    # would leave every button idle.
+    try:
+        step(*args)
+    except Exception:
+        traceback.print_exc(file=sys.stdout)
+        UI.exit_message_and_bottom_line("ERROR: " + step.__name__ + " failed.")
+
+
+################################################################################
+def show_thread_exception(args):
+    traceback.print_exception(
+        args.exc_type, args.exc_value, args.exc_traceback, file=sys.stdout
+    )
 
 ################################################################################
 class Ortho4XP_GUI(tk.Tk):
@@ -353,6 +371,7 @@ class Ortho4XP_GUI(tk.Tk):
         # Redirection
         self.stdout_orig = sys.stdout
         sys.stdout = self
+        threading.excepthook = show_thread_exception
 
         # reinitialization from last visit
         try:
@@ -460,7 +479,7 @@ class Ortho4XP_GUI(tk.Tk):
             UI.vprint(1, "Process aborted.\n")
             return 0
         self.working_thread = threading.Thread(
-            target=VMAP.build_poly_file, args=[tile]
+            target=run_step, args=[VMAP.build_poly_file, tile]
         )
         self.working_thread.start()
 
@@ -472,7 +491,7 @@ class Ortho4XP_GUI(tk.Tk):
             UI.vprint(1, "Process aborted.\n")
             return 0
         self.working_thread = threading.Thread(
-            target=MESH.build_mesh, args=[tile]
+            target=run_step, args=[MESH.build_mesh, tile]
         )
         self.working_thread.start()
 
@@ -484,7 +503,7 @@ class Ortho4XP_GUI(tk.Tk):
             UI.vprint(1, "Process aborted.\n")
             return 0
         self.working_thread = threading.Thread(
-            target=MESH.sort_mesh, args=[tile]
+            target=run_step, args=[MESH.sort_mesh, tile]
         )
         self.working_thread.start()
 
@@ -496,7 +515,7 @@ class Ortho4XP_GUI(tk.Tk):
             UI.vprint(1, "Process aborted.\n")
             return 0
         self.working_thread = threading.Thread(
-            target=MESH.community_mesh, args=[tile]
+            target=run_step, args=[MESH.community_mesh, tile]
         )
         self.working_thread.start()
 
@@ -509,7 +528,7 @@ class Ortho4XP_GUI(tk.Tk):
             UI.vprint(1, "Process aborted.\n")
             return 0
         self.working_thread = threading.Thread(
-            target=MASK.build_masks, args=[tile, for_imagery]
+            target=run_step, args=[MASK.build_masks, tile, for_imagery]
         )
         self.working_thread.start()
 
@@ -521,7 +540,7 @@ class Ortho4XP_GUI(tk.Tk):
             UI.vprint(1, "Process aborted.\n")
             return 0
         self.working_thread = threading.Thread(
-            target=TILE.build_tile, args=[tile]
+            target=run_step, args=[TILE.build_tile, tile]
         )
         self.working_thread.start()
 
@@ -533,7 +552,7 @@ class Ortho4XP_GUI(tk.Tk):
             UI.vprint(1, "Process aborted.\n")
             return 0
         self.working_thread = threading.Thread(
-            target=TILE.build_all, args=[tile]
+            target=run_step, args=[TILE.build_all, tile]
         )
         self.working_thread.start()
 
@@ -1836,7 +1855,9 @@ class Ortho4XP_Earth_Preview(tk.Toplevel):
             self.v_["Extract overlays"].get(),
             self.v_["Read per tile cfg"].get(),
         ]
-        threading.Thread(target=TILE.build_tile_list, args=args).start()
+        threading.Thread(
+            target=run_step, args=[TILE.build_tile_list, *args]
+        ).start()
         return
 
     def scroll_start(self, event):
