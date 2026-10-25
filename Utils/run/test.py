@@ -111,6 +111,63 @@ if sys.platform == "win32" and cmd == OVL.seven_zip_bundled and os.path.isfile(i
         sys.exit("7-Zip: found " + str(found) + " without Utils, want " + installed)
 """
 
+# A Global Scenery DSF in the text form of DSFTool, with the two rasters
+# that Step 3 copies, a beach that overlays leave out by default, a
+# forest, and a road. It goes in a 7z archive, as in X-Plane 12.
+global_scenery_code = """
+import os
+import subprocess
+import numpy
+import O4_Overlay_Utils as OVL
+gs = sys.argv[1]
+dsf_dir = os.path.join(gs, "Earth nav data", "+40+000")
+os.makedirs(dsf_dir)
+lines = [
+    "I", "800", "DSF2TEXT",
+    "PROPERTY sim/west 5", "PROPERTY sim/east 6",
+    "PROPERTY sim/north 46", "PROPERTY sim/south 45",
+    "PROPERTY sim/planet earth",
+    "POLYGON_DEF lib/g10/beaches/test.bch",
+    "POLYGON_DEF lib/g10/forests/test.for",
+    "NETWORK_DEF lib/g10/roads.net",
+]
+for (i, name) in enumerate(("elevation", "bathymetry")):
+    raw = os.path.join(gs, name + ".raw")
+    (numpy.arange(101 * 101, dtype = "<i2") % 300 - 100 * i).tofile(raw)
+    lines.insert(i + 11, "RASTER_DEF " + name)
+    lines.append("RASTER_DATA version=1 bpp=2 flags=5 width=101 height=101 scale=1.0 offset=0.0 " + raw)
+for (kind, lon) in ((0, 5.3), (1, 5.5)):
+    lines += ["BEGIN_POLYGON " + str(kind) + " 255 2", "BEGIN_WINDING"]
+    for (x, y) in ((0, 0), (0.1, 0), (0.1, 0.1), (0, 0.1)):
+        lines.append("POLYGON_POINT " + str(lon + x) + " " + str(45.5 + y))
+    lines += ["END_WINDING", "END_POLYGON"]
+lines += ["BEGIN_SEGMENT 0 1 1 5.1 45.1 0", "END_SEGMENT 2 5.2 45.2 0"]
+text = os.path.join(gs, "+45+005.txt")
+with open(text, "w") as f:
+    f.write("\\n".join(lines) + "\\n")
+dsf = os.path.join(gs, "+45+005.dsf")
+subprocess.run([OVL.dsftool_cmd.strip(), "-text2dsf", text, dsf], stdout = subprocess.DEVNULL, check = True)
+subprocess.run([OVL.seven_zip(), "a", os.path.join(gs, "+45+005.7z"), dsf], stdout = subprocess.DEVNULL, check = True)
+os.replace(os.path.join(gs, "+45+005.7z"), os.path.join(dsf_dir, "+45+005.dsf"))
+"""
+
+# Step 4: extract the overlays of the Global Scenery DSF.
+overlay_code = """
+import os
+import subprocess
+import O4_File_Names as FNAMES
+import O4_Overlay_Utils as OVL
+OVL.custom_overlay_src = sys.argv[1]
+if not OVL.build_overlay(45, 5):
+    sys.exit("build_overlay failed")
+dsf = os.path.join(FNAMES.Overlay_dir, "Earth nav data", "+40+000", "+45+005.dsf")
+subprocess.run([OVL.dsftool_cmd.strip(), "-dsf2text", dsf, "overlay.txt"], stdout = subprocess.DEVNULL, check = True)
+with open("overlay.txt") as f:
+    text = f.read()
+if "BEGIN_POLYGON 1 " not in text or "BEGIN_POLYGON 0 " in text or "BEGIN_SEGMENT" not in text:
+    sys.exit(dsf + ": want the forest and the road, without the beach")
+"""
+
 # The GUI, driven in-process.
 gui_code = """
 import os
@@ -269,8 +326,13 @@ def test_tile(work, top):
     with open(os.path.join(build, "Ortho4XP_" + tile + ".cfg"), "w") as f:
         for (k, v) in config.items():
             f.write(k + "=" + str(v) + "\n")
+    gs = os.path.join(work, "Global Scenery")
     with open(os.path.join(top, "Ortho4XP.cfg"), "w") as f:
         f.write("skip_downloads=" + payload + "\n")
+        f.write("custom_overlay_src=" + gs + "\n")
+    errors = check("globalscenery", global_scenery_code, [gs], work, top, os.path.join(work, "Ortho4XP.log"))
+    if errors:
+        return errors
 
     log = os.path.join(work, "Ortho4XP.log")
     status = run([sys.executable, "Ortho4XP.py", str(lat), str(lon)], top, log, 1800)
@@ -278,7 +340,6 @@ def test_tile(work, top):
     if status != 0:
         return ["Ortho4XP.py " + str(lat) + " " + str(lon) + ": exit status " + str(status) + ", see " + log]
 
-    errors = []
     with open(log, encoding = "utf-8", errors = "replace") as f:
         out = f.read()
     if "invalid line: skip_downloads=" not in out:
@@ -330,8 +391,11 @@ def test_tile(work, top):
         errors.append("DSFTool -dsf2text: exit status " + str(status))
     else:
         with open(text, encoding = "latin-1") as f:
-            if "PROPERTY sim/west 5" not in f.read():
-                errors.append(text + ": missing sim/west 5")
+            out = f.read()
+        for line in ("PROPERTY sim/west 5", "RASTER_DEF elevation", "RASTER_DEF bathymetry"):
+            if line not in out:
+                errors.append(text + ": missing " + line)
+    errors += check("overlay", overlay_code, [gs], work, top, log)
 
     mesh = os.path.join(work, "test.mesh")
     shutil.copy(os.path.join(build, "Data" + tile + ".mesh"), mesh)
