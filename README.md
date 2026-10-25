@@ -1,6 +1,12 @@
 # Ortho4XP
 A scenery generator for the X-Plane flight simulator.
 
+The release archives for Linux and Windows (x86-64) include Python and the
+modules Ortho4XP needs: unpack one in a folder you can write to, and run
+Ortho4XP (Linux) or Ortho4XP.cmd (Windows). On Linux, reading the Global
+Scenery rasters needs the 7z command (7-Zip or p7zip).
+Install_Instructions.txt explains how to run Ortho4XP from source.
+
 NOTE 15/02/2024 : In transition to version 1.40.
 
 Version 1.40 is mostly a compatibility update for XP 12 water requirements.
@@ -18,9 +24,6 @@ the distance_masks_too option, the program will run even without it.
 
 
 TODO :
-- Update install instructions (after user first tests). The ones included have
-  not been updated at all, but the same list of decently recent python modules should 
-  work out of the box.
 - Check and update providers status.
 - Compile nvcompress for OSX ARM64 (the included version is the old one renamed without the
   .app). A Linux version of nvcompress is included now because some distros are apparently 

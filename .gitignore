@@ -15,4 +15,5 @@ Tiles/
 **/*.bak
 **/*.swp
 .last_gui_params.txt
+venv/
 Utils/build/
