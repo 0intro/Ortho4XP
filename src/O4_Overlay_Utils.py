@@ -15,14 +15,64 @@ ovl_exclude_net = []
 custom_overlay_src = ""
 
 if "dar" in sys.platform:
-    unzip_cmd = "7z "
     dsftool_cmd = os.path.join(FNAMES.Utils_dir, "mac", "DSFTool ")
+    seven_zip_bundled = os.path.join(FNAMES.Utils_dir, "mac", "7zz")
 elif "win" in sys.platform:
-    unzip_cmd = os.path.join(FNAMES.Utils_dir, "win", "7z.exe ")
     dsftool_cmd = os.path.join(FNAMES.Utils_dir, "win", "DSFTool.exe ")
+    seven_zip_bundled = os.path.join(FNAMES.Utils_dir, "win", "7z.exe")
 else:
-    unzip_cmd = "7z "
     dsftool_cmd = os.path.join(FNAMES.Utils_dir, "lin", "DSFTool ")
+    seven_zip_bundled = os.path.join(FNAMES.Utils_dir, "lin", "7zz")
+
+
+################################################################################
+def seven_zip():
+    # The 7-Zip command: the copy in Utils, else 7zz, 7z, or 7za on the
+    # PATH, else the one the Windows installer puts in Program Files.
+    if os.path.isfile(seven_zip_bundled):
+        return seven_zip_bundled
+    for name in ("7zz", "7z", "7za"):
+        path = shutil.which(name)
+        if path:
+            return path
+    if sys.platform == "win32":
+        path = os.path.join(
+            os.environ.get("ProgramFiles", "C:\\Program Files"),
+            "7-Zip",
+            "7z.exe",
+        )
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+################################################################################
+def extract_7z(archive, dest):
+    # Extracts the files of a 7z archive into dest. Returns 1 on success,
+    # and 0 after a message otherwise.
+    cmd = seven_zip()
+    if not cmd:
+        UI.lvprint(
+            0,
+            "   ERROR: 7-Zip not found. Install it (the package 7zip or",
+            "p7zip-full on Linux, sevenzip with Homebrew, or from",
+            "https://www.7-zip.org), or use a release archive of Ortho4XP.",
+        )
+        return 0
+    r = subprocess.run(
+        [cmd, "e", "-y", "-o" + dest, archive],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+    )
+    if r.returncode:
+        UI.lvprint(
+            0,
+            "   ERROR: 7-Zip could not extract",
+            archive + ":",
+            r.stderr.decode(errors="replace").strip(),
+        )
+        return 0
+    return 1
 
 ################################################################################
 def build_overlay(lat, lon):
@@ -68,14 +118,7 @@ def build_overlay(lat, lon):
     if dsfid == "7z":
         UI.vprint(1, "-> The original DSF is a 7z archive, uncompressing...")
         os.replace(file_to_sniff_loc, file_to_sniff_loc + ".7z")
-        if os.system(
-            unzip_cmd
-            + " e -o"
-            + FNAMES.Tmp_dir
-            + ' "'
-            + file_to_sniff_loc
-            + '.7z"'
-        ):
+        if not extract_7z(file_to_sniff_loc + ".7z", FNAMES.Tmp_dir):
             os.remove(file_to_sniff_loc + ".7z")
             UI.exit_message_and_bottom_line(
                 "   ERROR: 7z could not uncompress the DSF."
