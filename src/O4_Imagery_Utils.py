@@ -85,6 +85,10 @@ else:
 ################################################################################
 
 providers_dict = {}
+# The providers that wait for an api_key, by code, and the layers of each
+# combined provider that wait for one, as (layer_code, extent_code).
+providers_without_key = {}
+layers_without_key = {}
 combined_providers_dict = {}
 local_combined_providers_dict = {}
 extents_dict = {"global": {"dir": None, "code": "global"}}
@@ -486,6 +490,16 @@ def initialize_providers_dict():
                     provider["resolutions"] = numpy.array(
                         [20037508.34 / (128 * 2 ** i) for i in range(0, 21)]
                     )
+                missing_key = False
+                for key in ("url_template", "url_prefix"):
+                    if "{api_key}" not in provider.get(key, ""):
+                        continue
+                    if provider.get("api_key"):
+                        provider[key] = provider[key].replace(
+                            "{api_key}", provider["api_key"]
+                        )
+                    else:
+                        missing_key = True
                 if "request_type" not in provider:
                     UI.vprint(
                         0,
@@ -493,6 +507,16 @@ def initialize_providers_dict():
                         "file for",
                         file_name,
                     )
+                elif missing_key:
+                    UI.vprint(
+                        2,
+                        "Provider",
+                        provider_code,
+                        "needs an api_key in",
+                        file_name,
+                        ", skipped.",
+                    )
+                    providers_without_key[provider_code] = provider
                 else:
                     providers_dict[provider_code] = provider
             else:
@@ -523,6 +547,15 @@ def initialize_combined_providers_dict():
                 layer_code, extent_code, color_code, priority = line[
                     :-1
                 ].split()
+                if layer_code in providers_without_key:
+                    if extent_code == "default":
+                        extent_code = providers_without_key[layer_code][
+                            "extent"
+                        ]
+                    layers_without_key.setdefault(provider_code, []).append(
+                        (layer_code, extent_code)
+                    )
+                    continue
                 if layer_code not in providers_dict:
                     print(
                         "Unknown provider in combined provider",
@@ -613,6 +646,15 @@ def initialize_combined_providers_dict():
 ################################################################################
 
 ################################################################################
+# The .lay file of a provider that waits for an api_key.
+def key_file(provider_code):
+    provider = providers_without_key[provider_code]
+    return os.path.join(
+        FNAMES.Provider_dir, provider["directory"], provider_code + ".lay"
+    )
+
+
+################################################################################
 def initialize_local_combined_providers_dict(tile):
     # This function will select from list of providers the only
     # ones whose coverage intersect the given tile.
@@ -622,6 +664,31 @@ def initialize_local_combined_providers_dict(tile):
     test_set = set([tile.default_website])
     for region in tile.zone_list[:]:
         test_set.add(region[2])
+    missing = sorted(test_set.intersection(providers_without_key))
+    for provider_code in missing:
+        UI.lvprint(
+            0,
+            "ERROR: Provider",
+            provider_code,
+            "needs an api_key in",
+            key_file(provider_code),
+        )
+    if missing:
+        return 0
+    for provider_code in test_set.intersection(layers_without_key):
+        for (layer_code, extent_code) in layers_without_key[provider_code]:
+            if has_data(
+                (tile.lon, tile.lat + 1, tile.lon + 1, tile.lat), extent_code
+            ):
+                UI.lvprint(
+                    1,
+                    "WARNING: Layer",
+                    layer_code,
+                    "of",
+                    provider_code,
+                    "covers this tile but needs an api_key in",
+                    key_file(layer_code) + ", so Step 3 skips it.",
+                )
     for provider_code in test_set.intersection(combined_providers_dict):
         comb_list = []
         for rlayer in combined_providers_dict[provider_code]:
