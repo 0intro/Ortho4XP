@@ -17,3 +17,6 @@ Tiles/
 .last_gui_params.txt
 venv/
 Utils/build/
+Utils/lin/
+Utils/mac/
+Utils/win/
