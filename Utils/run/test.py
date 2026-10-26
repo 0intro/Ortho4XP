@@ -113,7 +113,9 @@ if CFG.custom_scenery_dir != sys.argv[3]:
 scenery_dir = "C:\\Users\\Frédéric\\X-Plane 12 €\\Custom Scenery"
 
 # 7-Zip as Ortho4XP finds it, and on Windows, the 7-Zip installed in
-# Program Files when the one in Utils is missing.
+# Program Files when the one in Utils is missing. A copy in Utils that
+# cannot run is passed over, and a 7-Zip that fails to start gets an
+# error.
 seven_zip_code = """
 import os
 import subprocess
@@ -137,6 +139,25 @@ if sys.platform == "win32" and cmd == OVL.seven_zip_bundled and os.path.isfile(i
     os.rename(cmd + ".hidden", cmd)
     if found != installed:
         sys.exit("7-Zip: found " + str(found) + " without Utils, want " + installed)
+if os.name != "nt":
+    bundled = OVL.seven_zip_bundled
+    made = not os.path.exists(bundled)
+    if made:
+        open(bundled, "w").close()
+    mode = os.stat(bundled).st_mode
+    os.chmod(bundled, mode & ~0o111)
+    found = OVL.seven_zip()
+    if made:
+        os.remove(bundled)
+    else:
+        os.chmod(bundled, mode)
+    if found == bundled:
+        sys.exit(bundled + ": found while it cannot run")
+with open("not7z.txt", "w") as f:
+    f.write("Ortho4XP")
+OVL.seven_zip = lambda: os.path.abspath("not7z.txt")
+if OVL.extract_7z("7z.7z", "tmp"):
+    sys.exit("extract_7z: success with a text file for 7-Zip")
 """
 
 # write_geotiff writes alt, rows from north to south, as a GeoTIFF of the

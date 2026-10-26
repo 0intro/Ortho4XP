@@ -28,21 +28,23 @@ else:
 ################################################################################
 def seven_zip():
     # The 7-Zip command: the copy in Utils, else 7zz, 7z, or 7za on the
-    # PATH, else the one the Windows installer puts in Program Files.
-    if os.path.isfile(seven_zip_bundled):
+    # PATH, else the one the Windows installer puts in Program Files, which
+    # ProgramW6432 names for a 32-bit Python.
+    if os.path.isfile(seven_zip_bundled) and os.access(
+        seven_zip_bundled, os.X_OK
+    ):
         return seven_zip_bundled
     for name in ("7zz", "7z", "7za"):
         path = shutil.which(name)
         if path:
             return path
     if sys.platform == "win32":
-        path = os.path.join(
-            os.environ.get("ProgramFiles", "C:\\Program Files"),
-            "7-Zip",
-            "7z.exe",
-        )
-        if os.path.isfile(path):
-            return path
+        for var in ("ProgramFiles", "ProgramW6432"):
+            path = os.path.join(
+                os.environ.get(var, "C:\\Program Files"), "7-Zip", "7z.exe"
+            )
+            if os.path.isfile(path):
+                return path
     return None
 
 
@@ -59,11 +61,15 @@ def extract_7z(archive, dest):
             "https://www.7-zip.org), or use a release archive of Ortho4XP.",
         )
         return 0
-    r = subprocess.run(
-        [cmd, "e", "-y", "-o" + dest, archive],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-    )
+    try:
+        r = subprocess.run(
+            [cmd, "e", "-y", "-o" + dest, archive],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
+    except OSError as e:
+        UI.lvprint(0, "   ERROR: Could not run", cmd + ":", e)
+        return 0
     if r.returncode:
         UI.lvprint(
             0,
