@@ -736,9 +736,13 @@ gui = GUI.Ortho4XP_GUI()
 gui.open_config_window()
 gui.config_window.v_["skip_downloads"].set(sys.argv[1])
 gui.config_window.v_["masks_width"].set("[1, 2")
+gui.config_window.v_["mesh_zl"].set("17")
+gui.config_window.v_["use_masks_for_inland"].set("True")
 gui.config_window.apply_changes()
 if TILE.skip_downloads is not False or CFG.masks_width != 100:
     errors.append("config window: kept invalid values")
+if CFG.get_var("mesh_zl") != 17 or CFG.get_var("use_masks_for_inland") is not True:
+    errors.append("config window: dropped valid values")
 # Dragging the tile map with the right button moves it. Aqua Tk calls
 # the right button 2 before Tk 8.7, and 3 from then on.
 gui.open_earth_window()
