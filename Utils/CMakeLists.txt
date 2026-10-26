@@ -14,20 +14,21 @@ set(CMAKE_POSITION_INDEPENDENT_CODE OFF)
 list(REMOVE_ITEM CMAKE_C_IMPLICIT_LINK_LIBRARIES gcc_s_asneeded)
 
 # Static programs run on any Linux distribution and any Windows.
-# macOS supports only dynamic linking.
+# macOS supports only dynamic linking, and medit loads the system's
+# OpenGL on Linux.
 if(NOT APPLE)
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static")
+    set(static -static)
 endif()
 
 add_executable(Triangle4XP src/Triangle4XP.c)
-target_link_libraries(Triangle4XP m)
+target_link_libraries(Triangle4XP m ${static})
 
 add_executable(triangle src/triangle.c)
 target_compile_definitions(triangle PRIVATE ANSI_DECLARATORS)
-target_link_libraries(triangle m)
+target_link_libraries(triangle m ${static})
 
 add_executable(moulinette src/moulinette.c)
-target_link_libraries(moulinette m)
+target_link_libraries(moulinette m ${static})
 
 include(FetchContent)
 
@@ -66,6 +67,54 @@ target_compile_options(DSFTool PRIVATE "SHELL:-include ${xpt}/Obj/XDefs.h"
 # C++17 and later make the byte of MinGW's rpcndr.h clash with std::byte.
 set_target_properties(DSFTool PROPERTIES
     CXX_STANDARD 14 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+target_link_libraries(DSFTool ${static})
+
+# medit, a viewer for .mesh files, with the system's GLUT on macOS and a
+# static freeglut elsewhere. Medit's own CMake skips Windows, so
+# FetchContent only downloads it, which a SOURCE_SUBDIR of none arranges.
+FetchContent_Declare(medit
+    URL https://github.com/ISCDtoolbox/Medit/archive/3031311bea54260e04929dcaaf3fb10a62710bb9.tar.gz
+    URL_HASH SHA256=ac69c820894ae3d171199630fcc48434ab45db8519d4f0e995ac5c69bf26e09f
+    SOURCE_SUBDIR none
+)
+FetchContent_MakeAvailable(medit)
+configure_file(${medit_SOURCE_DIR}/LICENSE medit-LICENSE.txt COPYONLY)
+file(GLOB medit_sources ${medit_SOURCE_DIR}/src/*.c)
+add_executable(medit ${medit_sources})
+set_target_properties(medit PROPERTIES C_STANDARD 17 C_EXTENSIONS ON)
+# Medit's own build silences its warnings too.
+target_compile_options(medit PRIVATE -w)
+if(APPLE)
+    target_compile_definitions(medit PRIVATE GL_SILENCE_DEPRECATION)
+    target_link_libraries(medit "-framework GLUT" "-framework OpenGL" m)
+else()
+    FetchContent_Declare(freeglut
+        URL https://github.com/freeglut/freeglut/releases/download/v3.8.0/freeglut-3.8.0.tar.gz
+        URL_HASH SHA256=674dcaff25010e09e450aec458b8870d9e98c46f99538db457ab659b321d9989
+        PATCH_COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_SOURCE_DIR}/src/patch-freeglut.cmake
+    )
+    set(FREEGLUT_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    set(FREEGLUT_BUILD_STATIC_LIBS ON CACHE BOOL "" FORCE)
+    set(FREEGLUT_BUILD_DEMOS OFF CACHE BOOL "" FORCE)
+    # libGL.so.1, which predates the split into libOpenGL and libGLX.
+    set(OpenGL_GL_PREFERENCE LEGACY)
+    FetchContent_MakeAvailable(freeglut)
+    configure_file(${freeglut_SOURCE_DIR}/COPYING freeglut-LICENSE.txt COPYONLY)
+    target_include_directories(medit PRIVATE ${freeglut_SOURCE_DIR}/include)
+    if(WIN32)
+        target_link_libraries(medit freeglut_static glu32 opengl32 m -static)
+    else()
+        # C23, the newest termios functions, and the newest sqrtf would
+        # raise the glibc that medit needs (check_elf in bundle.py).
+        # Without errno, sqrtf is one instruction.
+        set_target_properties(freeglut_static PROPERTIES C_STANDARD 17)
+        target_compile_options(freeglut_static PRIVATE -fno-math-errno
+            "SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/src/glibc-compat.h")
+        target_compile_options(medit PRIVATE -fno-math-errno)
+        find_package(OpenGL REQUIRED)
+        target_link_libraries(medit freeglut_static OpenGL::GLU OpenGL::GL m)
+    endif()
+endif()
 
 include(ExternalProject)
 
@@ -76,7 +125,7 @@ ExternalProject_Add(nvtt
     CMAKE_ARGS
         -DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}
         -DCMAKE_BUILD_TYPE=Release
-        -DCMAKE_EXE_LINKER_FLAGS=${CMAKE_EXE_LINKER_FLAGS}
+        -DCMAKE_EXE_LINKER_FLAGS=${static}
         -DCMAKE_POLICY_VERSION_MINIMUM=3.5
         -DCMAKE_DISABLE_FIND_PACKAGE_CUDA=ON
     BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --target nvcompress
