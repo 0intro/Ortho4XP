@@ -111,6 +111,62 @@ if sys.platform == "win32" and cmd == OVL.seven_zip_bundled and os.path.isfile(i
         sys.exit("7-Zip: found " + str(found) + " without Utils, want " + installed)
 """
 
+# GeoTIFF elevation, which Pillow reads when GDAL is missing: the test DEM
+# as SRTM ships its tiles (int16, Deflate, the corner pixels centered on
+# the tile corners), and as ALOS does (LZW, pixels tiling the tile, here in
+# float32), each with nodata in its northwest corner. A TIFF without
+# georeference reads as zero altitude.
+geotiff_code = """
+import numpy
+from PIL import Image, TiffImagePlugin, TiffTags
+import O4_DEM_Utils as DEM
+DEM.has_gdal = False
+(lat, lon) = (45, 5)
+def write(path, alt, point, nodata, compression):
+    step = 1 / (alt.shape[0] - 1 if point else alt.shape[0])
+    raster_type = 2 if point else 1
+    tags = {
+        33550: ((step, step, 0.0), TiffTags.DOUBLE),
+        33922: ((0.0, 0.0, 0.0, lon, lat + 1, 0.0), TiffTags.DOUBLE),
+        34735: ((1, 1, 0, 3, 1024, 0, 1, 2, 1025, 0, 1, raster_type, 2048, 0, 1, 4326), TiffTags.SHORT),
+        42113: (str(nodata), TiffTags.ASCII),
+    }
+    ifd = TiffImagePlugin.ImageFileDirectory_v2()
+    for (tag, (value, kind)) in tags.items():
+        ifd[tag] = value
+        ifd.tagtype[tag] = kind
+    if alt.dtype == numpy.int16:
+        # Pillow writes 16-bit samples unsigned unless SampleFormat says otherwise.
+        alt = alt.view(numpy.uint16)
+        ifd[339] = 2
+    Image.fromarray(alt).save(path, tiffinfo = ifd, compression = compression)
+srtm = numpy.fromfile(sys.argv[1], ">i2").reshape(1201, 1201).astype(numpy.int16)
+srtm[:10, :10] = -32768
+alos = srtm[:1200, :1200].astype(numpy.float32) + 0.25
+alos[:10, :10] = -9999
+e = 1 / 2400
+cases = [
+    ("srtm.tif", srtm, True, -32768, "tiff_deflate", (0, 0, 1, 1)),
+    ("alos.tif", alos, False, -9999, "tiff_lzw", (e, e, 1 - e, 1 - e)),
+]
+for (path, alt, point, nodata, compression, corners) in cases:
+    write(path, alt, point, nodata, compression)
+    want = alt.astype(numpy.float32)
+    want[want == nodata] = -32768
+    for info_only in (True, False):
+        (epsg, x0, y0, x1, y1, nd, nx, ny, got) = DEM.read_elevation_from_file(path, lat, lon, info_only)
+        if (epsg, nd, nx, ny) != (4326, -32768, alt.shape[1], alt.shape[0]):
+            sys.exit(path + ": epsg, nodata, and size " + str((epsg, nd, nx, ny)) + ", want " + str((4326, -32768, alt.shape[1], alt.shape[0])))
+        if not numpy.allclose((x0, y0, x1, y1), corners, rtol = 0, atol = 1e-9):
+            sys.exit(path + ": corners " + str((x0, y0, x1, y1)) + ", want " + str(corners))
+        if not info_only and not numpy.array_equal(got, want):
+            sys.exit(path + ": the elevations differ from the written ones")
+Image.fromarray(alos).save("plain.tif")
+got = DEM.read_elevation_from_file("plain.tif", lat, lon)[-1]
+if got.shape != (3601, 3601) or got.any():
+    sys.exit("plain.tif: read without georeference, want zero altitude")
+"""
+
 # A Global Scenery DSF in the text form of DSFTool, with the two rasters
 # that Step 3 copies, a beach that overlays leave out by default, a
 # forest, and a road. It goes in a 7z archive, as in X-Plane 12.
@@ -482,6 +538,7 @@ def test_tile(work, top):
             f.write("zone_list.append(" + str(zone) + ")\n")
     errors += check("legacy", legacy_code, [legacy, repr(config["zone_list"])], work, top, log)
     errors += check("7z", seven_zip_code, [], work, top, log)
+    errors += check("geotiff", geotiff_code, [os.path.join(top, config["custom_dem"])], work, top, log)
     if os.path.exists(os.path.join(top, "pwned")):
         errors.append("a config or provider file ran code")
     textures = sorted(glob.glob(os.path.join(build, "textures", "*.dds")))

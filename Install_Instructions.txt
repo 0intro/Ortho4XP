@@ -32,8 +32,9 @@ Any distribution, with Python 3.12 or later and its Tk module:
 python3 -m venv venv
 venv/bin/pip install -r requirements.txt
 venv/bin/python Ortho4XP.py
-Reading GeoTIFF elevation files also needs the GDAL Python module, and
-reading the Global Scenery rasters needs the 7z command (7-Zip or p7zip).
+Reading elevation files in formats other than GeoTIFF, .hgt, and .raw
+also needs the GDAL Python module, and reading the Global Scenery rasters
+needs the 7z command (7-Zip or p7zip).
 
 Windows
 -------
@@ -44,7 +45,8 @@ Make sure during the process that "pip" (package management system for Python)
 is installed along and made accessible from your PATH [there is a checkbox
 for this during the Python install process wich by default ISN'T checked].  
 
-2) Optionally, for GeoTIFF elevation files, download the Gdal package from
+2) Optionally, for elevation files in formats other than GeoTIFF, .hgt,
+and .raw, download the Gdal package from
 https://github.com/cgohlke/geospatial-wheels/releases
 
 Pay attention to take the one that corresponds to the Python version which you picked

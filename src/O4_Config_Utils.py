@@ -309,7 +309,7 @@ a particular server.",
     "iterate": {
         "type": int,
         "default": 0,
-        "hint": "Allows to refine a mesh using higher resolution elevation data of local scope only (requires Gdal), typically LIDAR data. Having an iterate number is handy to go backward one step when some choice of parameters needs to be revised. REQUIRES cleaning_level=0.",
+        "hint": "Allows to refine a mesh using higher resolution elevation data of local scope only (a GeoTIFF, or any raster that Gdal reads when it is installed), typically LIDAR data. Having an iterate number is handy to go backward one step when some choice of parameters needs to be revised. REQUIRES cleaning_level=0.",
     },
     # Masks
     "mask_zl": {
@@ -435,7 +435,7 @@ too low to grab these details.",
     "custom_dem": {
         "type": str,
         "default": "",
-        "hint": "Path to an elevation data file to be used instead of the default Viewfinderpanoramas.org ones (J. de Ferranti). The raster must be in geopgraphical coordinates (EPSG:4326) but the extent need not match the tile boundary (requires Gdal). Regions of the tile that are not covered by the raster are mapped to zero altitude (can be useful for high resolution data over islands in particular).     ",
+        "hint": "Path to an elevation data file to be used instead of the default Viewfinderpanoramas.org ones (J. de Ferranti). The raster must be in geopgraphical coordinates (EPSG:4326) but the extent need not match the tile boundary (a GeoTIFF, or any raster that Gdal reads when it is installed). Regions of the tile that are not covered by the raster are mapped to zero altitude (can be useful for high resolution data over islands in particular).     ",
     },
     "fill_nodata": {
         "type": bool,
