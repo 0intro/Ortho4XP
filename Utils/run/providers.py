@@ -13,7 +13,9 @@ import os
 import sys
 sys.dont_write_bytecode = True
 
+# Ortho4XP names its folders relative to the folder that holds it.
 root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+os.chdir(root_dir)
 sys.path[:0] = [os.path.join(root_dir, "src"), os.path.join(root_dir, "Providers")]
 
 import numpy
