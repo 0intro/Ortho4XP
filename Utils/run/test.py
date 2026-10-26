@@ -165,17 +165,20 @@ if OVL.extract_7z("7z.7z", "tmp"):
 
 # write_geotiff writes alt, rows from north to south, as a GeoTIFF of the
 # tile: the corner pixels centered on the tile corners when point is true,
-# as in SRTM, and pixels tiling the tile otherwise, as in ALOS.
+# as in SRTM, and pixels tiling the tile otherwise, as in ALOS. The
+# tiepoint lies at pixel tie.
 geotiff_writer = """
 import numpy
 from PIL import Image, TiffImagePlugin, TiffTags
 (lat, lon) = (45, 5)
-def write_geotiff(path, alt, point, nodata, compression):
-    step = 1 / (alt.shape[0] - 1 if point else alt.shape[0])
+def write_geotiff(path, alt, point, nodata, compression, tie = (0, 0)):
+    (rows, cols) = alt.shape
+    (sx, sy) = (1 / (cols - 1), 1 / (rows - 1)) if point else (1 / cols, 1 / rows)
+    (i, j) = tie
     raster_type = 2 if point else 1
     tags = {
-        33550: ((step, step, 0.0), TiffTags.DOUBLE),
-        33922: ((0.0, 0.0, 0.0, lon, lat + 1, 0.0), TiffTags.DOUBLE),
+        33550: ((sx, sy, 0.0), TiffTags.DOUBLE),
+        33922: ((float(i), float(j), 0.0, lon + i * sx, lat + 1 - j * sy, 0.0), TiffTags.DOUBLE),
         34735: ((1, 1, 0, 3, 1024, 0, 1, 2, 1025, 0, 1, raster_type, 2048, 0, 1, 4326), TiffTags.SHORT),
         42113: (str(nodata), TiffTags.ASCII),
     }
@@ -193,9 +196,10 @@ def write_geotiff(path, alt, point, nodata, compression):
 
 # GeoTIFF elevation, which Pillow reads when GDAL is missing: the test DEM
 # as SRTM ships its tiles (int16, Deflate), and as ALOS does (LZW, here in
-# float32), each with nodata in its northwest corner. Cells of NaN read as
-# nodata. A TIFF without georeference, and one of signed bytes, which
-# Pillow misreads, read as zero altitude.
+# float32), each with nodata in its northwest corner, and with pixels twice
+# as wide as high, tied at an inner pixel. Cells of NaN read as nodata. A
+# TIFF without georeference, and one of signed bytes, which Pillow
+# misreads, read as zero altitude.
 geotiff_code = geotiff_writer + """
 import O4_DEM_Utils as DEM
 DEM.has_gdal = False
@@ -206,11 +210,12 @@ alos[:10, :10] = -9999
 alos[-10:, -10:] = numpy.nan
 e = 1 / 2400
 cases = [
-    ("srtm.tif", srtm, True, -32768, "tiff_deflate", (0, 0, 1, 1)),
-    ("alos.tif", alos, False, -9999, "tiff_lzw", (e, e, 1 - e, 1 - e)),
+    ("srtm.tif", srtm, True, -32768, "tiff_deflate", (0, 0), (0, 0, 1, 1)),
+    ("alos.tif", alos, False, -9999, "tiff_lzw", (0, 0), (e, e, 1 - e, 1 - e)),
+    ("wide.tif", srtm[:, ::2], True, -32768, "tiff_deflate", (100, 200), (0, 0, 1, 1)),
 ]
-for (path, alt, point, nodata, compression, corners) in cases:
-    write_geotiff(path, alt, point, nodata, compression)
+for (path, alt, point, nodata, compression, tie, corners) in cases:
+    write_geotiff(path, alt, point, nodata, compression, tie)
     want = alt.astype(numpy.float32)
     want[(want == nodata) | numpy.isnan(want)] = -32768
     for info_only in (True, False):
