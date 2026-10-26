@@ -979,6 +979,11 @@ def test_tile(work, top, errors):
             errors.append(cfg + ": no warning for " + line + ", which holds code")
     if "fake headers for provider EVIL not valid" not in out:
         errors.append("EVIL.lay: no warning for headers that hold code")
+    # The live check of the providers fails on a provider that Ortho4XP
+    # rejects.
+    r = subprocess.run([sys.executable, os.path.join("Utils", "run", "providers.py"), "EVIL"], cwd = top, env = offline_env(), capture_output = True, text = True, timeout = 300)
+    if r.returncode != 1 or "EVIL fail" not in r.stdout:
+        errors.append("providers.py EVIL: status " + str(r.returncode) + ", output " + repr((r.stdout + r.stderr)[-300:]) + ", want 1 and EVIL fail")
     if "Error in treating LFZZ.patch.osm" not in out or "Auto-patched 1 runway" not in out:
         errors.append("LFZZ.patch.osm: a truncated patch took the place of the runway of the airport")
     if "non closed way" not in out:
