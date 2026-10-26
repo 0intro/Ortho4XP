@@ -54,7 +54,9 @@ def read_config(file_name):
                 continue
             (var, sep, text) = line.partition("=")
             if not sep or var not in cfg_vars:
-                warn_config(file_name, line, "unknown setting")
+                # Configs of earlier versions hold settings that this one
+                # dropped, such as hmin of 1.30.
+                warn_config(file_name, line, "unknown setting", 2)
                 continue
             # Configs from 1.20 and before quote some values.
             if text[:1] in ('"', "'"):
@@ -65,9 +67,13 @@ def read_config(file_name):
     return (settings, zones)
 
 
-def warn_config(file_name, line, reason):
+def warn_config(file_name, line, reason, verbosity=1):
     UI.lvprint(
-        1, "CFG error:", file_name + ": invalid line:", line, "(" + reason + ")"
+        verbosity,
+        "CFG error:",
+        file_name + ": invalid line:",
+        line,
+        "(" + reason + ")",
     )
 
 
