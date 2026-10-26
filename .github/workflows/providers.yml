@@ -1,0 +1,23 @@
+name: providers
+
+# Check every imagery provider live, from a runner in the United States.
+# Run it by hand.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  providers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - name: Install the requirements
+        run: pip install -r requirements.txt
+      - name: Check the providers
+        run: python Utils/run/providers.py
