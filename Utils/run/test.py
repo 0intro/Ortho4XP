@@ -563,6 +563,24 @@ if "BEGIN_POLYGON 1 " not in text or "BEGIN_POLYGON 0 " in text or "BEGIN_SEGMEN
     sys.exit(dsf + ": want the forest and the road, without the beach")
 """
 
+# The sort of a mesh in a folder whose name moulinette prints in another
+# encoding than UTF-8: the ANSI code page on Windows, and bytes that are
+# not UTF-8 on Linux.
+sort_name_code = """
+import os
+import shutil
+import O4_Config_Utils as CFG
+import O4_File_Names as FNAMES
+import O4_Mesh_Utils as MESH
+tile = CFG.Tile(45, 5, "")
+name = os.fsdecode(b"Tiles \\xe9") if sys.platform == "linux" else "Tiles \u00e9"
+os.makedirs(name)
+shutil.copy(FNAMES.mesh_file(tile.build_dir, 45, 5), FNAMES.mesh_file(name, 45, 5))
+tile.build_dir = name
+if not MESH.sort_mesh(tile):
+    sys.exit("sort_mesh failed in " + repr(name))
+"""
+
 # Shift-click on Build Mesh: moulinette reorders the mesh, which keeps its
 # triangles, groups them per texture of the zoomlevel, and numbers the
 # vertices in their order of first use. Step 3 then builds the DSF again.
@@ -971,6 +989,7 @@ def test_tile(work, top):
     errors += check("overlay", overlay_code, [gs], work, top, log)
     errors += check("norasters", no_rasters_code, [os.path.join(work, "Global Scenery 11")], work, top, log)
 
+    errors += check("sortname", sort_name_code, [], work, top, log)
     errors += check("sortmesh", sort_mesh_code, [], work, top, log)
     errors += test_moulinette(work, top, log)
 

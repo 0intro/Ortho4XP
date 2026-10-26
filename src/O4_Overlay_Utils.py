@@ -148,7 +148,7 @@ def build_overlay(lat, lon):
         if not line:
             break
         else:
-            UI.vprint(1, "     " + line.decode("utf-8")[:-1])
+            UI.vprint(1, "     " + line.decode("utf-8", "backslashreplace")[:-1])
     if fingers_crossed.wait():
         UI.exit_message_and_bottom_line("   ERROR: DSFTool crashed.")
         return 0
@@ -248,7 +248,7 @@ def build_overlay(lat, lon):
         if not line:
             break
         else:
-            print("     " + line.decode("utf-8")[:-1])
+            print("     " + line.decode("utf-8", "backslashreplace")[:-1])
     if fingers_crossed.wait():
         UI.exit_message_and_bottom_line("   ERROR: DSFTool crashed.")
         return 0

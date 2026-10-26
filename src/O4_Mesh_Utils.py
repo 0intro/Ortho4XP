@@ -674,7 +674,7 @@ def build_mesh(tile):
             break
         else:
             try:
-                print(line.decode("utf-8")[:-1])
+                print(line.decode("utf-8", "backslashreplace")[:-1])
             except:
                 pass
     fingers_crossed.wait()
@@ -696,7 +696,7 @@ def build_mesh(tile):
                 break
             else:
                 try:
-                    print(line.decode("utf-8")[:-1])
+                    print(line.decode("utf-8", "backslashreplace")[:-1])
                 except:
                     pass
         fingers_crossed.wait()
@@ -783,7 +783,7 @@ def sort_mesh(tile):
         if not line:
             break
         else:
-            print(line.decode("utf-8")[:-1])
+            print(line.decode("utf-8", "backslashreplace")[:-1])
     if moulinette.wait():
         UI.exit_message_and_bottom_line("\nERROR: moulinette failed.")
         return 0
@@ -815,7 +815,7 @@ def triangulate(name, path_to_Ortho4XP_dir):
         if not line:
             break
         else:
-            print(line.decode("utf-8")[:-1])
+            print(line.decode("utf-8", "backslashreplace")[:-1])
     fingers_crossed.wait()
     if fingers_crossed.returncode:
         print("\nERROR: triangle crashed, check osm mask data.\n")
