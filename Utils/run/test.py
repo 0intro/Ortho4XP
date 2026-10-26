@@ -778,7 +778,7 @@ if errors:
 skip = {
     ".git", ".last_gui_params.txt", "Elevation_data", "Geotiffs", "Masks",
     "OSM_data", "Ortho4XP.cfg", "Ortho4XP.log", "Orthophotos", "Previews",
-    "python", "Tiles", "tmp", "yOrtho4XP_Overlays",
+    "python", "Tiles", "tmp", "venv", "yOrtho4XP_Overlays",
 }
 
 def ignore(dir, names):
