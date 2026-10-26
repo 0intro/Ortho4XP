@@ -9,6 +9,9 @@
 # From that dereference, clang concludes that the pool holds points, and the
 # x86-64 macOS build reads its first point through a null pointer. Use
 # v.data() instead.
+#
+# DSFTool prints the date it was compiled on, which would make the same
+# sources build different programs. Print the date of the xptools commit.
 
 cmake_minimum_required(VERSION 3.21)
 include(${CMAKE_CURRENT_LIST_DIR}/patch.cmake)
@@ -20,3 +23,4 @@ patch(src/DSF/DSFPointPool.cpp "(int16_t *) &*shorts.begin()"
     "(int16_t *) shorts.data()")
 patch(src/DSF/DSFPointPool.cpp "(int *) &*longs.begin()"
     "(int *) longs.data()")
+patch(src/XPTools/version.h "__DATE__\".\\n\"" "\"May 30 2023.\\n\"")

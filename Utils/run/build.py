@@ -7,8 +7,9 @@ sys.dont_write_bytecode = True
 
 import configure
 
-# The commit time pins the __DATE__ that DSFTool prints, so that a commit
-# always builds the same programs.
+# The commit time pins the timestamps that compilers and linkers record,
+# such as those of the Windows programs, so that a commit always builds
+# the same programs.
 def set_source_date():
     if "SOURCE_DATE_EPOCH" in os.environ:
         return
