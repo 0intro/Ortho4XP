@@ -3,10 +3,10 @@
 # Check the imagery providers live: load them as Ortho4XP does, fetch the
 # imagery of a ZL 16 tile inside the coverage of each, and print a line per
 # provider: its code, then ok and the mean color of the image, blank and
-# the color of an image of one color, fail and the answers of the server,
-# or skip with api_key for a provider that needs a key, and with point for
-# a provider in a directory without a point below. With arguments, check
-# only the providers they name. Exits 1 if one is blank or fails.
+# the color of an image of one color, fail and the answers of the server or
+# the error, or skip with api_key for a provider that needs a key. A
+# provider in a directory without a point below fails too. With arguments,
+# check only the providers they name. Exits 1 if one is blank or fails.
 
 import math
 import os
@@ -19,6 +19,7 @@ os.chdir(root_dir)
 sys.path[:0] = [os.path.join(root_dir, "src"), os.path.join(root_dir, "Providers")]
 
 import numpy
+import requests
 import O4_Imagery_Utils as IMG
 import O4_UI_Utils as UI
 
@@ -71,7 +72,14 @@ request_to_image = IMG.http_request_to_image
 def recording_request(width, height, url, request_headers, http_session):
     (ok, data) = request_to_image(width, height, url, request_headers, http_session)
     if not ok:
-        answers.append(str(data))
+        answer = str(data)
+        # The answer for an exception, which this request shows.
+        if answer == "Connection failure":
+            try:
+                requests.get(url, headers = request_headers, timeout = IMG.http_timeout)
+            except requests.RequestException as e:
+                answer = type(e).__name__ + ": " + str(e)[:200]
+        answers.append(answer)
     return (ok, data)
 
 def mercator(lat, lon):
@@ -81,7 +89,7 @@ def mercator(lat, lon):
 def check(provider):
     point = provider_points.get(provider["code"], directory_points.get(provider["directory"]))
     if point is None:
-        return ("skip", "point")
+        return ("fail", "no test point for directory " + provider["directory"])
     (x, y) = mercator(*point)
     answers.clear()
     (ok, image) = IMG.build_texture_from_bbox_and_size((x - half, y + half, x + half, y - half), "3857", (256, 256), provider)
@@ -101,7 +109,9 @@ if __name__ == "__main__":
     IMG.initialize_color_filters_dict()
     IMG.initialize_providers_dict()
     codes = sorted(set(IMG.providers_dict) | IMG.providers_without_key)
-    if any(code not in codes for code in sys.argv[1:]):
+    unknown = [code for code in sys.argv[1:] if code not in codes]
+    if unknown:
+        print("providers.py: unknown provider " + " ".join(unknown), file = sys.stderr)
         print(usage, file = sys.stderr)
         sys.exit(2)
     failed = False
@@ -109,7 +119,10 @@ if __name__ == "__main__":
         if code in IMG.providers_without_key:
             (status, detail) = ("skip", "api_key")
         else:
-            (status, detail) = check(IMG.providers_dict[code])
+            try:
+                (status, detail) = check(IMG.providers_dict[code])
+            except Exception as e:
+                (status, detail) = ("fail", type(e).__name__ + ": " + str(e))
         failed = failed or status in ("blank", "fail")
         print(code, status, detail, flush = True)
     sys.exit(1 if failed else 0)
