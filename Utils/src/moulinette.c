@@ -730,6 +730,8 @@ avlsearch(AvlNode **root, int key, char *insert)
 		}
 		n->height = -1;
 	}
+	/* a rotation brings up a new top, whose height went stale */
+	top->height = -1;
 	*root = top;
 	return value;
 }
