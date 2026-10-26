@@ -101,7 +101,11 @@ def parse_value(var, text):
     if kind not in (bool, list):
         return kind(text)
     value = literal(text)
-    if kind is bool and not isinstance(value, bool):
+    if kind is bool:
+        # 1.40 ran the text as Python, which took 1 and 0 for true and
+        # false, and configs edited by hand may hold them.
+        if isinstance(value, int) and value in (0, 1):
+            return bool(value)
         raise ValueError("not True or False")
     if kind is list and not isinstance(value, (list, tuple, int, float)):
         raise ValueError("not a list or a number")
