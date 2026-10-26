@@ -21,6 +21,8 @@
  * follow the order in which the triangles first use them, and those no
  * triangle uses go.
  */
+#include <errno.h>
+#include <limits.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -28,7 +30,8 @@
 #include <time.h>
 
 enum {
-	Linelen = 256	/* longest line kept, newline included */
+	Linelen = 256,	/* longest line kept, newline included */
+	Maxcount = INT_MAX/4	/* most items in a section, for int indices */
 };
 
 /* M_PI, which strict C lacks */
@@ -46,7 +49,9 @@ struct AvlNode {
 };
 
 static void *emalloc(size_t);
-static char *voidlines(int);
+static int toolong(char*, FILE*);
+static int readcount(char*);
+static int readints(char*, int*, int);
 static int edgekey(int, int);
 static int avlheight(AvlNode*);
 static int avlbalance(AvlNode*);
@@ -61,9 +66,9 @@ main(int argc, char *argv[])
 	char *vert, *norm, *newvert, *newnorm, *outvert, *dst;
 	int *tri, *newtri, *group, *valence, *info, *next, *stack, *pending, *map, *p, *q;
 	double *coord, x, y, z, lat, scale;
-	int nv, nn, nt, iv, in, it, state, zl, i, j, k, t, t2, h, a, b, c, d, v, n;
+	int nv, nn, nt, iv, in, it, state, zl, i, j, k, t, t2, h, a, b, c, v, n;
 	int found, tx, ty, xmin, xmax, ymin, ymax, nx, ny, count, best, nout;
-	int nstack, npending, type, s[3], chains, strips, shared;
+	int nstack, npending, type, s[3], chains, strips, shared, field[4];
 	char insert;
 	AvlNode *tree;
 	FILE *f;
@@ -92,9 +97,17 @@ main(int argc, char *argv[])
 		puts("  Error: Mesh file is empty.");
 		return 1;
 	}
+	if (toolong(header, f)) {
+		puts("  Error: Mesh file has a line too long.");
+		return 1;
+	}
 	state = 0;
 	iv = in = it = 0;
 	while (fgets(line, sizeof line, f) != NULL) {
+		if (toolong(line, f)) {
+			puts("  Error: Mesh file has a line too long.");
+			return 1;
+		}
 		switch (state) {
 		case 0:
 			if (sscanf(line, "%s", word) == 1) {
@@ -107,62 +120,67 @@ main(int argc, char *argv[])
 			}
 			break;
 		case 2:
-			n = sscanf(line, "%d", &nv);
 			state = 0;
-			if (n == 1) {
+			n = readcount(line);
+			if (n >= 0) {
+				nv = n;
 				iv = 0;
 				if (nv > 0) {
 					free(vert);
-					vert = voidlines(nv);
+					vert = emalloc((size_t)nv * Linelen);
 					state = 3;
 				}
 			}
 			break;
 		case 3:
+			if (sscanf(line, "%lf %lf %lf", &x, &y, &z) != 3) {
+				puts("  Error: Mesh file has a malformed vertex.");
+				return 1;
+			}
 			strncpy(vert + (size_t)iv*Linelen, line, Linelen);
 			if (++iv >= nv)
 				state = 0;
 			break;
 		case 4:
-			n = sscanf(line, "%d", &nn);
 			state = 0;
-			if (n == 1) {
+			n = readcount(line);
+			if (n >= 0) {
+				nn = n;
 				in = 0;
 				if (nn > 0) {
 					free(norm);
-					norm = voidlines(nn);
+					norm = emalloc((size_t)nn * Linelen);
 					state = 5;
 				}
 			}
 			break;
 		case 5:
+			if (sscanf(line, "%lf %lf", &x, &y) != 2) {
+				puts("  Error: Mesh file has a malformed normal.");
+				return 1;
+			}
 			strncpy(norm + (size_t)in*Linelen, line, Linelen);
 			if (++in >= nn)
 				state = 0;
 			break;
 		case 6:
-			n = sscanf(line, "%d", &nt);
 			state = 0;
-			if (n == 1) {
+			n = readcount(line);
+			if (n >= 0) {
+				nt = n;
 				it = 0;
 				if (nt > 0) {
 					free(tri);
 					tri = emalloc((size_t)nt * 4 * sizeof tri[0]);
-					for (i = 0; i < nt*4; i++)
-						tri[i] = -1;
 					state = 7;
 				}
 			}
 			break;
 		case 7:
-			a = b = c = d = 0;
-			if (sscanf(line, "%d %d %d %d", &a, &b, &c, &d) == 4) {
-				if (tri != NULL) {
-					tri[4*it] = a - 1;
-					tri[4*it + 1] = b - 1;
-					tri[4*it + 2] = c - 1;
-					tri[4*it + 3] = d;
-				}
+			if (readints(line, field, 4) == 4) {
+				for (j = 0; j < 3; j++)
+					tri[4*it + j] = field[j] > 0 ? field[j] - 1 : -1;
+				tri[4*it + 3] = field[3];
 				if (++it >= nt)
 					state = 0;
 			} else
@@ -170,7 +188,12 @@ main(int argc, char *argv[])
 			break;
 		}
 	}
+	n = ferror(f);
 	fclose(f);
+	if (n != 0) {
+		puts("  Error: Unable to read mesh file.");
+		return 1;
+	}
 	printf("    Read %d vertices, %d normals, %d triangles.\n", nv, nn, nt);
 	if (tri == NULL) {
 		puts("  Error: Unable to process triangles.");
@@ -180,6 +203,15 @@ main(int argc, char *argv[])
 		puts("  Error: Unable to process vertices.");
 		return 1;
 	}
+	if (iv < nv || in < nn || it < nt) {
+		puts("  Error: Mesh file is incomplete.");
+		return 1;
+	}
+	for (i = 0; i < nt*4; i++)
+		if (i%4 != 3 && (tri[i] < 0 || tri[i] >= nv)) {
+			puts("  Error: A triangle refers to a missing vertex.");
+			return 1;
+		}
 
 	newtri = emalloc((size_t)nt * 4 * sizeof newtri[0]);
 	for (i = 0; i < nt; i++) {
@@ -197,14 +229,15 @@ main(int argc, char *argv[])
 	}
 
 	/* group[t] < 0 holds -1 or the cluster of t minus the clusters, minus 1 */
-	zl = 0;
-	sscanf(argv[1], "%d", &zl);
+	if (readints(argv[1], &zl, 1) != 1) {
+		printf("  Error: Zoomlevel %s is not a number.\n", argv[1]);
+		return 2;
+	}
 	if (zl > 0) {
 		coord = emalloc((size_t)nv * 2 * sizeof coord[0]);
 		for (i = 0; i < nv; i++) {
-			x = y = z = 0.0;
-			v = 0;
-			sscanf(vert + (size_t)i*Linelen, "%lf %lf %lf %d", &x, &y, &z, &v);
+			x = y = 0.0;
+			sscanf(vert + (size_t)i*Linelen, "%lf %lf", &x, &y);
 			coord[2*i] = x;
 			coord[2*i + 1] = y;
 		}
@@ -434,15 +467,15 @@ main(int argc, char *argv[])
 		(int)((double)nt / chains + 0.5), (int)((double)nt / strips + 0.5));
 
 	if (norm == NULL) {
-		newvert = voidlines(nv);
+		newvert = emalloc((size_t)nv * Linelen);
 		newnorm = NULL;
 	} else if (nv != nn) {
 		printf("  Warning: Vertex count %d does not match Normal %d count. Won't be reordered.\n", nv, nn);
 		outvert = vert;
 		goto Write;
 	} else {
-		newvert = voidlines(nv);
-		newnorm = voidlines(nn);
+		newvert = emalloc((size_t)nv * Linelen);
+		newnorm = emalloc((size_t)nn * Linelen);
 	}
 	puts("  Reordering vertices...");
 	map = emalloc((size_t)nv * sizeof map[0]);
@@ -511,6 +544,13 @@ Write:
 	return 0;
 }
 
+/* whether fgets cut line short of its newline before the end of f */
+static int
+toolong(char *line, FILE *f)
+{
+	return strchr(line, '\n') == NULL && !feof(f);
+}
+
 static void *
 emalloc(size_t n)
 {
@@ -524,17 +564,51 @@ emalloc(size_t n)
 	return p;
 }
 
-/* n lines of Linelen bytes, each holding "Void\n" */
-static char *
-voidlines(int n)
+/*
+ * Returns the count that line starts with, or -1 when line starts with no
+ * number. A negative count, or one above Maxcount, ends the program.
+ */
+static int
+readcount(char *line)
 {
-	char *s;
+	char *end;
+	long long n;
+
+	errno = 0;
+	n = strtoll(line, &end, 10);
+	if (end == line)
+		return -1;
+	if (n < 0) {
+		puts("  Error: Mesh file has a negative count.");
+		exit(1);
+	}
+	if (errno == ERANGE || n > Maxcount) {
+		puts("  Error: Mesh file is too large.");
+		exit(1);
+	}
+	return (int)n;
+}
+
+/*
+ * Reads up to n integers from s into v, and returns how many it read
+ * before a field that is no number or lies outside int.
+ */
+static int
+readints(char *s, int *v, int n)
+{
+	char *end;
+	long long x;
 	int i;
 
-	s = emalloc((size_t)n * Linelen);
-	for (i = 0; i < n; i++)
-		strncpy(s + (size_t)i*Linelen, "Void\n", Linelen);
-	return s;
+	for (i = 0; i < n; i++) {
+		errno = 0;
+		x = strtoll(s, &end, 10);
+		if (end == s || errno == ERANGE || x < INT_MIN || x > INT_MAX)
+			break;
+		v[i] = (int)x;
+		s = end;
+	}
+	return i;
 }
 
 /* the edge from vertex a to vertex b, with a in the low 16 bits */
