@@ -90,10 +90,10 @@ jobs:
           name: bundles
       - name: Unpack
         run: tar -xzf Ortho4XP-*-linux-x86_64.tar.gz
-      - name: Install OpenGL for medit, and a German locale
+      - name: Install OpenGL for medit, Xvfb, and a German locale
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y libgl1 libglu1-mesa libgl1-mesa-dri
+          sudo apt-get install -y libgl1 libglu1-mesa libgl1-mesa-dri xvfb
           sudo locale-gen de_DE.UTF-8
       - name: Test
         run: Ortho4XP/python/bin/python3 Ortho4XP/Utils/run/test.py
