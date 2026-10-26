@@ -139,9 +139,20 @@ def file_version(path):
     (ms, ls) = struct.unpack_from("<II", data, i + 8)
     return (ms >> 16, ms & 0xFFFF, ls >> 16, ls & 0xFFFF)
 
-# The programs outside python/ need at most glibc 2.28, like the
-# manylinux_2_28 wheels. medit links the system's OpenGL dynamically,
-# and building it on a current glibc makes it need 2.34.
+# The output of a tool that inspects a program, which must succeed.
+def output(*cmd):
+    r = subprocess.run(cmd, capture_output = True, text = True)
+    if r.returncode:
+        sys.exit(" ".join(cmd) + ": " + r.stderr.strip())
+    return r.stdout
+
+# The libraries that medit loads: glibc and the system's OpenGL and X11.
+# The other programs outside python/ are static.
+medit_libs = {"libGL.so.1", "libGLU.so.1", "libX11.so.6", "libXi.so.6", "libXrandr.so.2", "libm.so.6", "libc.so.6"}
+
+# The programs outside python/ load only those libraries, and need at most
+# glibc 2.28, like the manylinux_2_28 wheels. Building medit on a current
+# glibc makes it need 2.34.
 def check_elf(top):
     errors = []
     for path in files(top):
@@ -150,21 +161,40 @@ def check_elf(top):
         with open(path, "rb") as f:
             if f.read(4) != b"\x7fELF":
                 continue
-        most = [2, 34] if os.path.basename(path) == "medit" else [2, 28]
-        out = subprocess.run(["objdump", "-T", path], capture_output = True, text = True).stdout
-        for version in set(re.findall(r"GLIBC_([0-9.]+)", out)):
+        medit = os.path.basename(path) == "medit"
+        needed = set(re.findall(r"NEEDED\s+(\S+)", output("objdump", "-p", path)))
+        for lib in sorted(needed - (medit_libs if medit else set())):
+            errors.append(path + " needs " + lib)
+        if not needed:
+            continue
+        most = [2, 34] if medit else [2, 28]
+        for version in set(re.findall(r"GLIBC_([0-9.]+)", output("objdump", "-T", path))):
             if [int(n) for n in version.split(".")] > most:
                 errors.append(path + " needs GLIBC_" + version)
     return errors
 
+# The machine field of a PE image (0x8664 for x86-64), or None for another
+# file.
+def pe_machine(path):
+    with open(path, "rb") as f:
+        dos = f.read(64)
+        if len(dos) < 64 or dos[:2] != b"MZ":
+            return None
+        f.seek(struct.unpack_from("<I", dos, 0x3C)[0])
+        pe = f.read(6)
+    if len(pe) < 6 or pe[:4] != b"PE\0\0":
+        return None
+    return struct.unpack_from("<H", pe, 4)[0]
+
+# The x86-64 images load only the DLLs of the archive and of Windows. The
+# launchers for other machines that pip keeps are data.
 def check_pe(top):
     shipped = {os.path.basename(path).lower() for path in files(top) if path.lower().endswith(".dll")}
     errors = []
     for path in files(top):
-        if not path.lower().endswith((".exe", ".dll", ".pyd")):
+        if not path.lower().endswith((".exe", ".dll", ".pyd")) or pe_machine(path) != 0x8664:
             continue
-        out = subprocess.run(["x86_64-w64-mingw32-objdump", "-p", path], capture_output = True, text = True).stdout
-        for dll in re.findall(r"DLL Name: (\S+)", out):
+        for dll in re.findall(r"DLL Name: (\S+)", output("x86_64-w64-mingw32-objdump", "-p", path)):
             dll = dll.lower()
             if dll not in shipped and dll not in system_dlls and not dll.startswith("api-ms-win-"):
                 errors.append(path + " needs " + dll)
@@ -196,11 +226,11 @@ def check_macho(top, arch):
             magic = f.read(4)
         if magic not in (b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe"):
             continue
-        archs = subprocess.run(["lipo", "-archs", path], capture_output = True, text = True).stdout.split()
+        archs = output("lipo", "-archs", path).split()
         if arch not in archs:
             errors.append(path + " holds " + " ".join(archs) + ", want " + arch)
-        out = subprocess.run(["otool", "-L", "-arch", arch, path], capture_output = True, text = True).stdout
-        for lib in out.splitlines()[1:]:
+            continue
+        for lib in output("otool", "-L", "-arch", arch, path).splitlines()[1:]:
             lib = lib.split()[0]
             if not lib.startswith(("/usr/lib/", "/System/Library/")):
                 errors.append(path + " needs " + lib)
