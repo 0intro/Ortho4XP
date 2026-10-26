@@ -304,63 +304,6 @@ class Vector_Map:
                 and (alpha0 < oneminuseps or alpha1 < oneminuseps)
                 and (alpha0, alpha1, beta0, beta1)
             )
-    
-    def are_encroached_old(self, a, b, c, d):
-        # A crucial one !
-        # returns False if the only mutual points of the closed segments a->b
-        #    and c->d are in {a,b,c,d}
-        # returns [alpha,beta] where (1-alpha)*a * alpha*b =
-        #    (1-beta)*c+beta*d otherwise and if the segments otherwise cut each
-        #    other transversally (possibly only in one point)
-        # returns [alpha0,alpha1,beta0,beta1] where
-        #    alpha0*(a-b)=(a-c), alpha1*(a-b)=(a-d),
-        #    beta0*(c-d)=(c-a), beta1*(c-d)=(c-b)
-        #    otherwise and if the segments are colinear.
-        # In the last case we hence have :
-        #    c=(1-alpha0)*a+alpha0*b, d=(1-alpha1)*a+alpha1*b,
-        #    a=(1-beta0)*c+beta0*d, b=(1-beta1)*c+beta1*d
-        # First a speed check when a==d (should happen for any new edge within
-        # insert_way) or when (b==c) (should happen once at closing within
-        # insert_way)
-        if ((a == d).all() or (b == c).all()) and numpy.dot(b - a, c - d) / (
-            numpy.linalg.norm(b - a) * numpy.linalg.norm(c - d)
-        ) < 0.999:
-            return False
-        if ((a == c).all() or (b == d).all()) and numpy.dot(b - a, d - c) / (
-            numpy.linalg.norm(b - a) * numpy.linalg.norm(c - d)
-        ) < 0.999:
-            return False
-        eps = 1e-14
-        A = numpy.column_stack((b - a, c - d))
-        F = c - a
-        if abs(numpy.linalg.det(A)) > eps:
-            [alpha, beta] = numpy.linalg.solve(A, F)
-            enc_lim = 1e-7
-            return (
-                (alpha >= 0 and alpha <= 1)
-                and (beta >= 0 and beta <= 1)
-                and (
-                    (alpha > enc_lim and alpha < 1 - enc_lim)
-                    or (beta > enc_lim and beta < 1 - enc_lim)
-                )
-                and [alpha, beta]
-            )
-        elif abs(numpy.linalg.det(numpy.column_stack((b - a, c - a)))) > eps:
-            return False
-        else:
-            g_idx = numpy.argmax(abs(a - b))
-            d_idx = numpy.argmax(abs(c - d))
-            alpha0, alpha1 = (a - c)[g_idx] / (a - b)[g_idx], (a - d)[g_idx] / (
-                a - b
-            )[g_idx]
-            beta0, beta1 = (c - a)[d_idx] / (c - d)[d_idx], (c - b)[d_idx] / (
-                c - d
-            )[d_idx]
-            return (
-                (alpha0 > 0 or alpha1 > 0)
-                and (alpha0 < 1 or alpha1 < 1)
-                and [alpha0, alpha1, beta0, beta1]
-            )
 
     def encode_MultiPolygon(
         self,
@@ -812,39 +755,6 @@ def ensure_MultiLineString(input_geometry):
 
 
 ################################################################################
-def ensure_ccw(input_geometry):
-    if input_geometry.is_empty:
-        return geometry.MultiLineString()
-    geometries = []
-    for line in (
-        input_geometry.geoms
-        if "Multi" in input_geometry.geom_type
-        else [input_geometry]
-    ):
-        if line.is_ring and not geometry.LinearRing(line).is_ccw:
-            line.coords = list(line.coords)[::-1]
-        geometries.append(line)
-    return geometry.MultiLineString(geometries)
-
-
-################################################################################
-def indexed_difference(idx_pol1, dico_pol1, idx_pol2, dico_pol2):
-    idx_out = index.Index()
-    dico_out = {}
-    idnew = 0
-    for polid1, pol1 in dico_pol1.items():
-        for polid2 in idx_pol2.intersection(pol1.bounds):
-            if pol1.intersects(dico_pol2[polid2]):
-                pol1 = pol1.difference(dico_pol2[polid2])
-        if pol1.area:
-            for pol in pol1 if "Multi" in pol1.geom_type else [pol1]:
-                idx_out.insert(idnew, pol.bounds)
-                dico_out[idnew] = pol
-                idnew += 1
-    return idx_out, dico_out
-
-
-################################################################################
 def coastline_to_MultiPolygon(coastline, lat, lon, custom_source=False):
     def encode_to_next(coord, new_way, remove_coords):
         UI.vprint(3, "Computing next  coord for", coord)
@@ -1147,38 +1057,6 @@ def projcoords(way, A, B):
 
 
 ################################################################################
-def point_to_segment_distance(way, A, B):
-    # distance of each point of way to the segment joining A and B
-    # tmp = numpy.maximum(numpy.minimum(0,projcoords(way,A,B)),1)
-    # tmp = way - (A+numpy.outer(tmp,(B-A))
-    # tmp = numpy.sum(tmp**2*numpy.array([scalx**2,1]),axis=1)
-    # return numpy.sqrt(tmp)*GEO.lat_to_m
-    # In short :
-    return (
-        numpy.sqrt(
-            numpy.sum(
-                (
-                    way
-                    - (
-                        A
-                        + numpy.outer(
-                            numpy.maximum(
-                                numpy.minimum(1, projcoords(way, A, B)), 0
-                            ),
-                            (B - A),
-                        )
-                    )
-                )
-                ** 2
-                * numpy.array([scalx ** 2, 1]),
-                axis=1,
-            )
-        )
-        * GEO.lat_to_m
-    )
-
-
-################################################################################
 def least_square_fit_altitude_along_way(way, steps, dem, weights=False):
     linestring = affinity.affine_transform(
         geometry.LineString(way), [scalx, 0, 0, 1, 0, 0]
@@ -1274,18 +1152,6 @@ def weighted_alt(node, alt_idx, alt_dico, dem):
         return alpha * alti / weights + (1 - alpha) * dem.alt(node)
     else:
         return alti / weights
-
-
-################################################################################
-def convolve_periodic(way, kernel):
-    # way is expected to be closed, and way[0]==way[-1], the convolution is
-    # meant with respect to periodic variables
-    k = len(kernel) // 2
-    return numpy.convolve(
-        numpy.concatenate((way[-k - 1 : -1], way, way[1 : k + 1])),
-        kernel,
-        "valid",
-    )
 
 
 ################################################################################
