@@ -31,6 +31,9 @@ enum {
 	Linelen = 256	/* longest line kept, newline included */
 };
 
+/* M_PI, which strict C lacks */
+static const double Pi = 3.14159265358979323846;
+
 typedef struct AvlNode AvlNode;
 
 /* a node of the AVL tree that maps an edge to its half-edges */
@@ -221,7 +224,7 @@ main(int argc, char *argv[])
 			/* the texture of zoomlevel zl, 16 tiles wide, under the centroid */
 			scale = pow(2.0, zl - 5);
 			tx = (int)(((coord[2*a] + coord[2*b] + coord[2*c]) / 3.0 / 180.0 + 1.0) * scale);
-			ty = (int)(scale * (1.0 - log(tan((90.0 + lat) * (M_PI / 360))) / M_PI));
+			ty = (int)(scale * (1.0 - log(tan((90.0 + lat) * (Pi / 360))) / Pi));
 			if (!found) {
 				xmin = xmax = tx;
 				ymin = ymax = ty;
