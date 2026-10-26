@@ -967,7 +967,7 @@ if __name__ == "__main__":
 
         reprojection = GEO.transformer(4326, int(epsg_code))
         multipolygon_area = shapely.ops.transform(
-            reprojection, multipolygon_area
+            reprojection.transform, multipolygon_area
         )
 
     vector_map.encode_MultiPolygon(

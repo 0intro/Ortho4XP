@@ -305,6 +305,55 @@ sys.argv = sys.argv[1:]
 runpy.run_path(sys.argv[0], run_name = "__main__")
 """
 
+# The extent tool in Extents/Test, on the cached OSM data of a square, in
+# EPSG 4326 and 3857. extent runs the tool as its command line would, and
+# bounds reads the mask_bounds of an .ext file.
+extent_code = """
+import bz2
+import os
+import runpy
+from PIL import Image
+import O4_Geo_Utils as GEO
+os.makedirs(os.path.join("Extents", "Test"))
+os.chdir(os.path.join("Extents", "Test"))
+tool = os.path.join("..", "..", "src", "O4_Mask_Utils.py")
+square = [(45.3, 5.3), (45.3, 5.31), (45.31, 5.31), (45.31, 5.3)]
+with bz2.open("Test.osm.bz2", "wt", encoding = "utf-8") as f:
+    f.write('<?xml version="1.0" encoding="UTF-8"?>\\n<osm version="0.6">\\n')
+    for (i, (lat, lon)) in enumerate(square, 1):
+        f.write('  <node id="' + str(i) + '" lat="' + str(lat) + '" lon="' + str(lon) + '"/>\\n')
+    f.write('  <way id="1">\\n' + "".join('    <nd ref="' + str(i) + '"/>\\n' for i in (1, 2, 3, 4, 1)) + '  </way>\\n</osm>\\n')
+def extent(*args):
+    sys.argv = [tool] + list(args)
+    try:
+        runpy.run_path(tool, run_name = "__main__")
+    except SystemExit as e:
+        return e.code
+    return 0
+def bounds(name):
+    with open(name + ".ext") as f:
+        for line in f:
+            if line.startswith("mask_bounds="):
+                return [float(x) for x in line[len("mask_bounds="):].split(",")]
+    sys.exit(name + ".ext: no mask_bounds")
+def check(name, inside, grid):
+    (xmin, ymin, xmax, ymax) = bounds(name)
+    (x0, y0, x1, y1) = inside
+    if not (xmin < x0 and ymin < y0 and xmax > x1 and ymax > y1):
+        sys.exit(name + ".ext: mask_bounds " + str((xmin, ymin, xmax, ymax)) + " around " + str(inside))
+    if any(abs(b / grid - round(b / grid)) > 1e-6 for b in (xmin, ymin, xmax, ymax)):
+        sys.exit(name + ".ext: mask_bounds " + str((xmin, ymin, xmax, ymax)) + " off the grid of " + str(grid))
+    with Image.open(name + ".png") as im:
+        if not im.getbbox():
+            sys.exit(name + ".png: empty")
+extent("Test", "100", "0", "200")
+check("Test", (5.3, 45.3, 5.31, 45.31), 0.02)
+extent("Test", "100", "0", "200", "way[name=Test]", "3857")
+(x0, y0) = GEO.transform(4326, 3857, 5.3, 45.3)
+(x1, y1) = GEO.transform(4326, 3857, 5.31, 45.31)
+check("Test_3857", (x0, y0, x1, y1), 2000)
+"""
+
 # A Global Scenery DSF in the text form of DSFTool, with the two rasters
 # that Step 3 copies, a beach that overlays leave out by default, a
 # forest, and a road. It goes in a 7z archive, as in X-Plane 12.
@@ -712,6 +761,7 @@ def test_tile(work, top):
     errors += check("geotiff", geotiff_code, [os.path.join(top, config["custom_dem"])], work, top, log)
     errors += check("opentopography", opentopography_code, [], work, top, log)
     errors += check("community", community_code, [], work, top, log)
+    errors += check("extent", extent_code, [], work, top, log)
     if os.path.exists(os.path.join(top, "pwned")):
         errors.append("a config or provider file ran code")
     textures = sorted(glob.glob(os.path.join(build, "textures", "*.dds")))
