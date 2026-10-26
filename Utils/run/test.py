@@ -864,17 +864,20 @@ def run(cmd, cwd, log, timeout):
 
 # Runs Python code in the copied tree, with the program's modules on the
 # path. The code reports failures with sys.exit(message), and check
-# returns them as errors.
+# returns them as errors. Its standard error goes through a file: after a
+# timeout, subprocess.run on Windows reads a pipe until each program that
+# holds it ends, such as a hung one that the check started.
 def check(name, code, args, work, top, log, timeout = 300):
     path = os.path.join(work, name + ".py")
     with open(path, "w", encoding = "utf-8") as f:
         f.write("import sys\nsys.dont_write_bytecode = True\nsys.path[:0] = ['src', 'Providers']\n" + code)
-    with open(log, "ab") as out:
+    with open(log, "ab") as out, tempfile.TemporaryFile() as e:
         try:
-            r = subprocess.run([sys.executable, path] + args, cwd = top, env = offline_env(), stdout = out, stderr = subprocess.PIPE, timeout = timeout)
-            (status, err) = (r.returncode, r.stderr.decode("utf-8", "replace"))
+            status = subprocess.run([sys.executable, path] + args, cwd = top, env = offline_env(), stdout = out, stderr = e, timeout = timeout).returncode
         except subprocess.TimeoutExpired:
-            (status, err) = ("timeout", "")
+            status = "timeout"
+        e.seek(0)
+        err = e.read().decode("utf-8", "replace")
         out.write(err.encode("utf-8"))
     if status == 0:
         return []
@@ -933,7 +936,7 @@ def test_tile(work, top, errors):
     german = os.path.join(work, "german.py")
     with open(german, "w") as f:
         f.write(german_code)
-    status = run([sys.executable, german, "Ortho4XP.py", str(lat), str(lon)], top, log, 1800)
+    status = run([sys.executable, german, "Ortho4XP.py", str(lat), str(lon)], top, log, 900)
     server.shutdown()
     if status != 0:
         errors.append("Ortho4XP.py " + str(lat) + " " + str(lon) + ": exit status " + str(status) + ", see " + log)
@@ -1043,7 +1046,7 @@ def test_tile(work, top, errors):
     # Ortho4XP names the programs it misses at startup.
     triangle = os.path.join(top, "Utils", sys_dir, "triangle" + exe)
     os.rename(triangle, triangle + ".hidden")
-    r = subprocess.run([sys.executable, "Ortho4XP.py", "1", "2", "3"], cwd = top, env = offline_env(), capture_output = True, text = True)
+    r = subprocess.run([sys.executable, "Ortho4XP.py", "1", "2", "3"], cwd = top, env = offline_env(), capture_output = True, text = True, timeout = 300)
     os.rename(triangle + ".hidden", triangle)
     if r.returncode != 2 or "Missing " + os.path.join(".", "Utils", sys_dir, "triangle" + exe) not in r.stderr:
         errors.append("Ortho4XP.py without triangle: status " + str(r.returncode) + ", stderr " + repr(r.stderr[-300:]))
@@ -1064,7 +1067,7 @@ def test_moulinette(work, top, log):
     # Every triangle of the tile's mesh lies in one cluster.
     mesh2 = os.path.join(work, "tile.mesh")
     shutil.copy(os.path.join(top, "Tiles", "zOrtho4XP_" + tile, "Data" + tile + ".mesh"), mesh2)
-    r = subprocess.run([moulinette, "14", mesh2], cwd = work, stdout = subprocess.PIPE, text = True)
+    r = subprocess.run([moulinette, "14", mesh2], cwd = work, stdout = subprocess.PIPE, text = True, timeout = 300)
     counted = sum(int(line.split()[1]) for line in r.stdout.splitlines() if line.strip().startswith("Reordering") and "cluster" in line)
     with open(mesh2) as f:
         lines = f.read().splitlines()
@@ -1178,7 +1181,8 @@ def test_gui(work, top, errors):
     return errors
 
 # medit shows a mesh, and runs until stopped. On Windows the kill also
-# loses its buffered output.
+# loses its buffered output. A SIGTERM while freeglut talks to the X server
+# can hang medit, which the timeout catches.
 def test_medit(work, top, log):
     mesh = os.path.join(work, "medit.mesh")
     with open(mesh, "w") as f:
@@ -1188,7 +1192,12 @@ def test_medit(work, top, log):
     time.sleep(5)
     status = medit.poll()
     medit.terminate()
-    out = medit.communicate()[0].decode("utf-8", "replace")
+    try:
+        out = medit.communicate(timeout = 30)[0].decode("utf-8", "replace")
+    except subprocess.TimeoutExpired:
+        medit.kill()
+        medit.communicate()
+        return ["medit: still running 30 s after SIGTERM"]
     with open(log, "a", encoding = "utf-8") as f:
         f.write(out)
     if status is not None:
