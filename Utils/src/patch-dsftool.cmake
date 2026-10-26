@@ -10,14 +10,8 @@
 # x86-64 macOS build reads its first point through a null pointer. Use
 # v.data() instead.
 
-function(patch path old new)
-    file(READ ${path} text)
-    string(REPLACE "${old}" "${new}" patched "${text}")
-    if(patched STREQUAL text)
-        message(FATAL_ERROR "${path}: missing ${old}")
-    endif()
-    file(WRITE ${path} "${patched}")
-endfunction()
+cmake_minimum_required(VERSION 3.21)
+include(${CMAKE_CURRENT_LIST_DIR}/patch.cmake)
 
 set(old "\t#define fopen(_Filename,_Mode) x_fopen(_Filename, _Mode)")
 patch(src/Obj/XDefs.h "${old}"
