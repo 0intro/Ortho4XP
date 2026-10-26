@@ -613,11 +613,16 @@ import O4_Mesh_Utils as MESH
 import O4_Overlay_Utils as OVL
 import O4_Tile_Utils as TILE
 
+# The vertices, each with its normal, which the sort keeps together, and
+# the triangles.
 def read(path):
     with open(path) as f:
         lines = f.read().split("\\n")
     i = lines.index("Vertices")
     vertices = [tuple(line.split()) for line in lines[i + 2:i + 2 + int(lines[i + 1])]]
+    i = lines.index("Normals")
+    normals = [tuple(line.split()) for line in lines[i + 2:i + 2 + int(lines[i + 1])]]
+    vertices = [v + n for (v, n) in zip(vertices, normals, strict = True)]
     i = lines.index("Triangles")
     triangles = [[int(x) for x in line.split()] for line in lines[i + 2:i + 2 + int(lines[i + 1])]]
     return (vertices, triangles)
