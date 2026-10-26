@@ -6,9 +6,13 @@ The source code is licensed under GPL v3, the latter can be found in the file gp
   
 The output of Ortho4XP covered works is not considered a covered work (according to GPL v3's definition). Mesh and dsf files built using Ortho4XP covered works and used in commercial products are subject to the Creative Commons Attribution license.  
 
-Parts of the following software are redistributed along Ortho4XP source code:
+The release archives include the following software. Utils/src holds the
+source of Triangle4XP, triangle, and moulinette, the build fetches the
+source of DSFTool, medit, freeglut, and nvcompress, and the archives take
+7-Zip from its release:
 
 Medit by Pascal Frey
+freeglut by Pawel W. Olszta and the freeglut developers
 Triangle by Jonathan Shewchuk 
 Moulinette by Pascal (Scratchfly @x-plane.org)
 DSFTool by Laminar Research
@@ -20,25 +24,42 @@ The following legal notices apply to them :
 ------------------------------------------------------------------------------
 Medit
 Pascal Frey
-https://www.ljll.math.upmc.fr/frey/software.html
+https://github.com/ISCDtoolbox/Medit
 
-Ce logiciel a été enregistré à l’APP sous le numéro IDDN.FR.001.410023.00.R.P. 
-2001.000.10800 le 25 janvier 2001.
+Medit is free software under the GNU General Public License, version 3,
+whose text the archives hold beside it in Utils/<system>/medit-LICENSE.txt.
+------------------------------------------------------------------------------
 
-The explicit authorization to distribute it here was given by Pascal Frey.
+------------------------------------------------------------------------------
+freeglut
+Pawel W. Olszta and the freeglut developers
+https://freeglut.sourceforge.net
+
+The Linux and Windows builds of medit include freeglut 3.8.0, under the
+MIT/X11 license, whose text the archives hold in
+Utils/<system>/freeglut-LICENSE.txt.
 ------------------------------------------------------------------------------
 
 ------------------------------------------------------------------------------
 Triangle
 Jonathan Shewchuk
 
-The licence is explicitely included in the header files of Utils/showme.c 
-and Utils/Triangle4XP.c. 
+The licence is explicitely included in the header files of
+Utils/src/triangle.c and Utils/src/Triangle4XP.c.
 
 Triangle4XP.c is a mofification by Oscar Pilote of the original Triangle.c of 
 Jonathan Shewchuk, the full copyright of the file Triangle4XP.c is left to 
 Jonathan Shewchuks; the extracted modifications are licened GPL v3 with author
 Oscar Pilote.
+------------------------------------------------------------------------------
+
+------------------------------------------------------------------------------
+Moulinette
+Pascal (Scratchfly @x-plane.org)
+
+Pascal wrote moulinette in C++, and Ortho4XP shipped it as a binary.
+Utils/src/moulinette.c restates his program in C from that binary, for
+the same use and under the same terms.
 ------------------------------------------------------------------------------
 
 ------------------------------------------------------------------------------
@@ -51,63 +72,28 @@ that are compatible with either MIT/X11 or GPL.
 
 The source code for these tools is all available at:
 
-http://dev.x-plane.com/cgit/cgit.cgi/xptools.git/
+https://github.com/X-Plane/xptools
+
+The archives hold DSFTool 2.3.0-b3, from the xpt_23-4_release branch,
+with the licenses of its parts in Utils/<system>/DSFTool-LICENSE.txt.
 ------------------------------------------------------------------------------
 
 ------------------------------------------------------------------------------
 7-Zip
 Igor Pavlov
+https://www.7-zip.org
 
-License for use and distribution
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The archives hold 7-Zip 26.05, with its license beside it in
+Utils/<system>/7-Zip-License.txt.
 
-7-Zip Copyright (C) 1999-2018 Igor Pavlov.
+7-Zip Copyright (C) 1999-2026 Igor Pavlov.
 
-Licenses for files are:
+Its licenses are the GNU LGPL for most of the code, the GNU LGPL with the
+unRAR license restriction for some code, and the BSD 3-clause and 2-clause
+licenses for some code.
 
-  1) 7z.dll: GNU LGPL + unRAR restriction
-  2) All other files:  GNU LGPL
-
-The GNU LGPL + unRAR restriction means that you must follow both 
-GNU LGPL rules and unRAR restriction rules.
-
-
-Note: 
-  You can use 7-Zip on any computer, including a computer in a commercial 
+  You can use 7-Zip on any computer, including a computer in a commercial
   organization. You don't need to register or pay for 7-Zip.
-
-
-GNU LGPL information
---------------------
-
-  This library is free software; you can redistribute it and/or
-  modify it under the terms of the GNU Lesser General Public
-  License as published by the Free Software Foundation; either
-  version 2.1 of the License, or (at your option) any later version.
-
-  This library is distributed in the hope that it will be useful,
-  but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-  Lesser General Public License for more details.
-
-  You can receive a copy of the GNU Lesser General Public License from 
-  http://www.gnu.org/
-
-
-unRAR restriction
------------------
-
-  The decompression engine for RAR archives was developed using source 
-  code of unRAR program.
-  All copyrights to original unRAR code are owned by Alexander Roshal.
-
-  The license for original unRAR code has the following restriction:
-
-    The unRAR sources cannot be used to re-create the RAR compression algorithm, 
-    which is proprietary. Distribution of modified unRAR sources in separate form 
-    or as a part of other software is permitted, provided that it is clearly
-    stated in the documentation and source comments that the code may
-    not be used to develop a RAR (WinRAR) compatible archiver.
 ------------------------------------------------------------------------------
 
 ------------------------------------------------------------------------------

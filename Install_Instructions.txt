@@ -4,9 +4,11 @@ line-ends and will create a mess.
 ------------------------------------------------------------------------
 
 ------------------------------------------------------------------------
-NOTICE 2 : Linux and Windows users: The release archives include Python
-and the modules. Unpack one in a folder you can write to, and run
-Ortho4XP (Linux) or Ortho4XP.cmd (Windows).
+NOTICE 2 : Linux, macOS, and Windows users: The release archives include
+Python, the modules, the programs, and 7-Zip. Unpack one in a folder you
+can write to, and run Ortho4XP (Linux and macOS) or Ortho4XP.cmd
+(Windows). On macOS, first run xattr -dr com.apple.quarantine Ortho4XP
+in the folder that holds it.
 ------------------------------------------------------------------------
 
 The following instructions are for the script install :
@@ -14,15 +16,10 @@ The following instructions are for the script install :
 Linux 
 -----
 Debian/Ubuntu-based distributions 
-sudo apt-get install python3 python3-pip python3-requests python3-numpy python3-pyproj python3-gdal python3-shapely python3-rtree python3-pil python3-pil.imagetk p7zip-full libnvtt-bin freeglut3 gdal-bin
+sudo apt-get install python3 python3-pip python3-requests python3-numpy python3-pyproj python3-gdal python3-shapely python3-rtree python3-pil python3-pil.imagetk p7zip-full gdal-bin
 
 Arch-based distributions
-(You must have the AUR enabled and yay installed)
-
-yay nvidia-texture-tools
-(this will download, build and install the Nvidia Texture Tools package which includes some necessary modules for Ortho4XP)
-
-sudo pacman -S python python-pip python-requests python-numpy python-pyproj python-gdal python-shapely python-rtree python-pillow python-pmw p7zip freeglut
+sudo pacman -S python python-pip python-requests python-numpy python-pyproj python-gdal python-shapely python-rtree python-pillow python-pmw p7zip
 
 (if some of them were not packaged for your distro you can use pip instead, like say, pip install pyproj)
 
@@ -31,10 +28,27 @@ Python module names may be different on other distributions.
 Any distribution, with Python 3.12 or later and its Tk module:
 python3 -m venv venv
 venv/bin/pip install -r requirements.txt
-venv/bin/python Ortho4XP.py
+
 Reading elevation files in formats other than GeoTIFF, .hgt, and .raw
 also needs the GDAL Python module, and reading the Global Scenery rasters
 needs the 7z command (7-Zip or p7zip).
+
+Then build the programs (Triangle4XP, nvcompress, DSFTool, medit, and
+others) into Utils/lin. This takes CMake, a C and C++ compiler, and the
+development files of zlib, OpenGL, GLU, and X11:
+
+Debian/Ubuntu-based distributions
+sudo apt-get install cmake g++ make zlib1g-dev libgl-dev libglu1-mesa-dev libx11-dev libxi-dev libxrandr-dev
+
+Fedora
+sudo dnf install cmake gcc gcc-c++ make glibc-static libstdc++-static zlib-devel mesa-libGL-devel mesa-libGLU-devel libX11-devel libXi-devel libXrandr-devel
+
+Utils/run/configure.py lin
+Utils/run/build.py lin
+Utils/run/install.py lin
+
+Launch Ortho4XP with python3 Ortho4XP.py, or with venv/bin/python
+Ortho4XP.py from the Python environment in venv.
 
 Windows
 -------
@@ -64,10 +78,13 @@ pip install --upgrade pip  [if this goes wrong you probably missed the last poin
 pip install -r requirements.txt
 pip install *******.whl [replacing ******** by the file downloaded at Step 2, if any]
 
+4) Copy the Utils\win folder of the Windows release archive into the
+Ortho4XP folder. It holds the programs, which build on Linux, and 7-Zip.
+
 You should be done. Launch "python Ortho4XP.py".
 
-OS X
-----
+macOS
+-----
 
 1) In a Terminal window, install Homebrew (brew.sh), a package manager
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
@@ -75,8 +92,10 @@ OS X
 2) Go to the Ortho4XP folder
 cd /path/to/Ortho4XP
 
-3) Execute the install script (you may have to run "chmod +x ./install_mac.sh" first)
+3) Execute the install script (you may have to run "chmod +x ./install_mac.sh" first).
+It installs Python, CMake, and 7-Zip with Homebrew, the modules in a
+Python environment in venv, and builds the programs into Utils/mac.
 ./install_mac.sh
 
 4) Launch Ortho4XP
-python3 Ortho4XP.py
+venv/bin/python Ortho4XP.py
