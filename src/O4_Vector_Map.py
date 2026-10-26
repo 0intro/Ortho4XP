@@ -734,6 +734,13 @@ def include_patches(vector_map, tile):
                         cell_size = float(wtags["cell_size"])
                     except:
                         cell_size = 10
+                    if not cell_size > 0:
+                        UI.vprint(
+                            1,
+                            "    cell_size must be positive for an ",
+                            "altitude_high/altitude_low polygon, skipped.",
+                        )
+                        continue
                     try:
                         rnw_profile = wtags["profile"]
                     except:

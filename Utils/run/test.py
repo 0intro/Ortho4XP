@@ -73,12 +73,14 @@ osm = {
 }
 
 # Patches of the tile as OSM ways, by name: a ramp on the plateau that
-# falls from 450 m at its west end to 420 m at its east end, and a ramp
-# whose way ends 8 m east of its start, which Step 1 must reject.
+# falls from 450 m at its west end to 420 m at its east end, and two that
+# Step 1 must reject: a ramp whose way ends 8 m east of its start, and one
+# with cells of zero size.
 ramp = box(45.9, 5.4, 45.9006, 5.42)
 patches = {
     "ramp": [(ramp, {"altitude_high": "450", "altitude_low": "420"})],
     "open": [(box(45.95, 5.45, 45.9506, 5.47)[:-1] + [(45.95, 5.4501)], {"altitude_high": "450", "altitude_low": "420"})],
+    "zero": [(box(45.96, 5.5, 45.9606, 5.52), {"altitude_high": "450", "altitude_low": "420", "cell_size": "0"})],
 }
 
 # Settings must never run code. The tests put this one in config files and
@@ -683,6 +685,8 @@ def test_tile(work, top):
         errors.append("LFZZ.patch.osm: a truncated patch took the place of the runway of the airport")
     if "non closed way" not in out:
         errors.append("open.patch.osm: no warning for an open way")
+    if "cell_size must be positive" not in out:
+        errors.append("zero.patch.osm: no warning for a cell_size of 0")
     # The mesh reaches the 1200 m top of the hill only when Triangle4XP
     # reads the size of the DEM right. Its altitudes are in units of 100 km.
     mesh = os.path.join(build, "Data" + tile + ".mesh")
