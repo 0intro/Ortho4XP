@@ -537,6 +537,16 @@ def test_moulinette(work, top, log):
     errors = []
     if status != 0 or header != small_mesh.splitlines(True)[0]:
         errors.append("moulinette: header " + repr(header) + ", status " + str(status))
+    # Every triangle of the tile's mesh lies in one cluster.
+    mesh2 = os.path.join(work, "tile.mesh")
+    shutil.copy(os.path.join(top, "Tiles", "zOrtho4XP_" + tile, "Data" + tile + ".mesh"), mesh2)
+    r = subprocess.run([moulinette, "14", mesh2], cwd = work, stdout = subprocess.PIPE, text = True)
+    counted = sum(int(line.split()[1]) for line in r.stdout.splitlines() if line.strip().startswith("Reordering") and "cluster" in line)
+    with open(mesh2) as f:
+        lines = f.read().splitlines()
+    triangles = int(lines[lines.index("Triangles") + 1])
+    if r.returncode != 0 or counted != triangles:
+        errors.append("moulinette: clusters of " + str(counted) + " triangles in all, want " + str(triangles))
     # Failures leave the mesh as it was and exit with status 1.
     missing = os.path.join(work, "missing.mesh")
     status = run([moulinette, "0", missing], work, log, 60)
