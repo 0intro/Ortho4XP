@@ -17,6 +17,7 @@ except:
 from PIL import Image
 import O4_UI_Utils as UI
 import O4_File_Names as FNAMES
+import O4_Version
 
 available_sources = (
     "View",
@@ -862,7 +863,9 @@ def http_request(url, source, verbose=False):
     tentative = 0
     while True:
         try:
-            r = s.get(url, timeout=10)
+            r = s.get(
+                url, timeout=10, headers={"User-Agent": O4_Version.user_agent}
+            )
             status_code = str(r)
             if "[20" in status_code:
                 return r

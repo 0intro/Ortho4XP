@@ -50,7 +50,7 @@ user_agent_generic = (
 )
 user_agent_ortho4xp = O4_Version.user_agent
 request_headers_generic = {
-    "User-Agent": user_agent_generic,
+    "User-Agent": user_agent_ortho4xp,
     "Accept": "*/*",
     "Connection": "keep-alive",
     "Accept-Encoding": "gzip, deflate",
