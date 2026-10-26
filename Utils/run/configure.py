@@ -71,13 +71,15 @@ if __name__ == "__main__":
         cmd = ["cmake", "-S", utils_dir, "-B", build_dir(build_type, cfg)]
         if cfg["toolchain"]:
             cmd.append("-DCMAKE_TOOLCHAIN_FILE=" + os.path.join(utils_dir, "toolchains", cfg["toolchain"]))
+        # The install step of NVTT copies nvcompress from where a generator
+        # of a single configuration puts it, whatever CMAKE_GENERATOR says.
+        cmd += ["-G", "Unix Makefiles"]
         if cfg == mac_cfg:
             # Universal programs, for macOS 14 and later, as the wheels of
             # the archives need.
             if sys.platform != "darwin":
                 sys.exit("configure.py: the macOS programs build on a Mac")
-            cmd += ["-G", "Unix Makefiles", "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64",
-                "-DCMAKE_OSX_DEPLOYMENT_TARGET=14.0"]
+            cmd += ["-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64", "-DCMAKE_OSX_DEPLOYMENT_TARGET=14.0"]
         cmd.append("-DCMAKE_BUILD_TYPE=" + build_type)
         run(cmd)
         print("Configuration done for " + cfg["name"] + ".")
