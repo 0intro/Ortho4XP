@@ -10,7 +10,7 @@ import configure
 def install(src, utils_dir, cfg):
     dst = os.path.join(utils_dir, cfg["dir"])
     os.makedirs(dst, exist_ok = True)
-    for name in ("Triangle4XP", "triangle"):
+    for name in ("Triangle4XP", "triangle", "moulinette"):
         shutil.copy2(os.path.join(src, name + cfg["suff"]), dst)
     if cfg["dir"] == "win":
         dst = os.path.join(dst, "nvcompress")
