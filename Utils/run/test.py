@@ -137,10 +137,15 @@ with open(os.path.join("tmp", "7z.txt")) as f:
         sys.exit(cmd + ": extracted the wrong data")
 installed = os.path.join(os.environ.get("ProgramFiles", ""), "7-Zip", "7z.exe")
 if sys.platform == "win32" and cmd == OVL.seven_zip_bundled and os.path.isfile(installed):
+    # A 7-Zip on the PATH goes before Program Files, so the PATH holds
+    # only the Windows directories here.
+    path = os.environ["PATH"]
+    os.environ["PATH"] = os.path.expandvars(r"%SystemRoot%\\System32;%SystemRoot%")
     os.rename(cmd, cmd + ".hidden")
     found = OVL.seven_zip()
     os.rename(cmd + ".hidden", cmd)
-    if found != installed:
+    os.environ["PATH"] = path
+    if found is None or os.path.normcase(found) != os.path.normcase(installed):
         sys.exit("7-Zip: found " + str(found) + " without Utils, want " + installed)
 if os.name != "nt":
     bundled = OVL.seven_zip_bundled
