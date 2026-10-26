@@ -156,6 +156,13 @@ def apt_file(tile):
     )
 
 
+# The airports as 1.40 pickled them, which apt_file replaces.
+def legacy_apt_file(tile):
+    return os.path.join(
+        tile.build_dir, "Data" + short_latlon(tile.lat, tile.lon) + ".apt"
+    )
+
+
 def weight_file(tile):
     return os.path.join(
         tile.build_dir, "Data" + short_latlon(tile.lat, tile.lon) + ".weight"
