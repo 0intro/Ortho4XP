@@ -181,9 +181,24 @@ jobs:
           Ortho4XP/Ortho4XP 1 2 3 || status=$?
           test "$status" = 2
 
+  test-source-macos:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    env:
+      CMAKE_BUILD_PARALLEL_LEVEL: 4
+      HOMEBREW_NO_AUTO_UPDATE: 1
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install
+        run: ./install_mac.sh
+      - name: Test
+        run: venv/bin/python Utils/run/test.py
+      - name: Test the GUI
+        run: venv/bin/python Utils/run/test.py -gui
+
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [test-linux, test-source, test-windows, test-macos]
+    needs: [test-linux, test-source, test-windows, test-macos, test-source-macos]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
