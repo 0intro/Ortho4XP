@@ -921,6 +921,11 @@ if __name__ == "__main__":
         query = None
     if nargs in (7, 8):
         epsg_code = sys.argv[6]
+        try:
+            GEO.record_epsg(int(epsg_code))
+        except Exception:
+            print(Syntax)
+            sys.exit(1)
     else:
         epsg_code = "4326"
     if nargs == 8:

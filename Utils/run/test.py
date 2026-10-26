@@ -323,7 +323,7 @@ runpy.run_path(sys.argv[0], run_name = "__main__")
 """
 
 # The extent tool in Extents/Test, on the cached OSM data of a square, in
-# EPSG 4326 and 3857, and on a relation from an Overpass server here,
+# EPSG 4326 and 2154, and on a relation from an Overpass server here,
 # whose tags must all reach the cache, then with a grid argument, and with
 # one that holds code, which the tool must refuse. extent runs the tool as
 # its command line would, and bounds reads the mask_bounds of an .ext file.
@@ -368,10 +368,11 @@ def check(name, inside, grid):
             sys.exit(name + ".png: empty")
 extent("Test", "100", "0", "200")
 check("Test", (5.3, 45.3, 5.31, 45.31), 0.02)
-extent("Test", "100", "0", "200", "way[name=Test]", "3857")
-(x0, y0) = GEO.transform(4326, 3857, 5.3, 45.3)
-(x1, y1) = GEO.transform(4326, 3857, 5.31, 45.31)
-check("Test_3857", (x0, y0, x1, y1), 2000)
+extent("Test", "100", "0", "200", "way[name=Test]", "2154")
+GEO.record_epsg(2154)
+(x0, y0) = GEO.transform(4326, 2154, 5.3, 45.3)
+(x1, y1) = GEO.transform(4326, 2154, 5.31, 45.31)
+check("Test_2154", (x0, y0, x1, y1), 2000)
 import O4_OSM_Utils as OSM
 overpass = "\\n".join([
     '<?xml version="1.0" encoding="UTF-8"?>',
