@@ -180,17 +180,19 @@ def write_geotiff(path, alt, point, nodata, compression):
     for (tag, (value, kind)) in tags.items():
         ifd[tag] = value
         ifd.tagtype[tag] = kind
-    if alt.dtype == numpy.int16:
-        # Pillow writes 16-bit samples unsigned unless SampleFormat says otherwise.
-        alt = alt.view(numpy.uint16)
+    if alt.dtype in (numpy.int8, numpy.int16):
+        # Pillow writes 8 and 16-bit samples unsigned unless SampleFormat
+        # says otherwise.
+        alt = alt.view(alt.dtype.str.replace("i", "u"))
         ifd[339] = 2
     Image.fromarray(alt).save(path, tiffinfo = ifd, compression = compression)
 """
 
 # GeoTIFF elevation, which Pillow reads when GDAL is missing: the test DEM
 # as SRTM ships its tiles (int16, Deflate), and as ALOS does (LZW, here in
-# float32), each with nodata in its northwest corner. A TIFF without
-# georeference reads as zero altitude.
+# float32), each with nodata in its northwest corner. Cells of NaN read as
+# nodata. A TIFF without georeference, and one of signed bytes, which
+# Pillow misreads, read as zero altitude.
 geotiff_code = geotiff_writer + """
 import O4_DEM_Utils as DEM
 DEM.has_gdal = False
@@ -198,6 +200,7 @@ srtm = numpy.fromfile(sys.argv[1], ">i2").reshape(1201, 1201).astype(numpy.int16
 srtm[:10, :10] = -32768
 alos = srtm[:1200, :1200].astype(numpy.float32) + 0.25
 alos[:10, :10] = -9999
+alos[-10:, -10:] = numpy.nan
 e = 1 / 2400
 cases = [
     ("srtm.tif", srtm, True, -32768, "tiff_deflate", (0, 0, 1, 1)),
@@ -206,7 +209,7 @@ cases = [
 for (path, alt, point, nodata, compression, corners) in cases:
     write_geotiff(path, alt, point, nodata, compression)
     want = alt.astype(numpy.float32)
-    want[want == nodata] = -32768
+    want[(want == nodata) | numpy.isnan(want)] = -32768
     for info_only in (True, False):
         (epsg, x0, y0, x1, y1, nd, nx, ny, got) = DEM.read_elevation_from_file(path, lat, lon, info_only)
         if (epsg, nd, nx, ny) != (4326, -32768, alt.shape[1], alt.shape[0]):
@@ -216,9 +219,11 @@ for (path, alt, point, nodata, compression, corners) in cases:
         if not info_only and not numpy.array_equal(got, want):
             sys.exit(path + ": the elevations differ from the written ones")
 Image.fromarray(alos).save("plain.tif")
-got = DEM.read_elevation_from_file("plain.tif", lat, lon)[-1]
-if got.shape != (3601, 3601) or got.any():
-    sys.exit("plain.tif: read without georeference, want zero altitude")
+write_geotiff("bytes.tif", numpy.arange(-60, 61, dtype = numpy.int8).repeat(121).reshape(121, 121), True, -128, None)
+for path in ("plain.tif", "bytes.tif"):
+    got = DEM.read_elevation_from_file(path, lat, lon)[-1]
+    if got.shape != (3601, 3601) or got.any():
+        sys.exit(path + ": read, want zero altitude")
 """
 
 # serve serves files, a dict of bytes by path, whatever the query string,

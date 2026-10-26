@@ -491,6 +491,9 @@ def read_elevation_from_file(
             (alt_dem, geo, nodata, epsg, nxdem, nydem) = read_raster(
                 file_name, info_only
             )
+            if not info_only:
+                # Float rasters may mark nodata with NaN, whatever their tag.
+                alt_dem[numpy.isnan(alt_dem)] = -32768
             if nodata is None:
                 UI.vprint(
                     1,
@@ -537,6 +540,7 @@ def read_elevation_from_file(
                 "   ERROR: in reading ",
                 file_name,
                 "-> replaced with zero altitude.",
+                "" if has_gdal else "(Gdal reads more formats.)",
             )
             nxdem = nydem = base_if_error
             if not info_only:
@@ -591,15 +595,26 @@ def read_raster_gdal(file_name, info_only):
 def read_geotiff(file_name, info_only):
     with Image.open(file_name) as im:
         tags = im.tag_v2
+        # Pillow reads 8-bit samples as unsigned, even those that the
+        # SampleFormat tag (339) declares signed.
+        sample_format = tags.get(339, 1)
+        if isinstance(sample_format, tuple):
+            sample_format = sample_format[0]
+        if im.mode not in ("L", "I;16", "I;16B", "I", "F") or (
+            im.mode == "L" and sample_format == 2
+        ):
+            raise ValueError(file_name + ": samples that Pillow misreads")
         (sx, sy) = tags[33550][:2]
         (i, j, _, x, y, _) = tags[33922][:6]
-        # Four shorts per key after a header of four: the key, the tag that
-        # holds its value (0 when the entry holds it), a count, and the value.
+        # A header of four shorts, the last the number of keys, then four
+        # shorts per key: the key, the tag that holds its value (0 when the
+        # entry holds it), a count, and the value.
         keys = tags.get(34735, ())
+        entries = keys[4 : 4 + 4 * keys[3]] if len(keys) >= 4 else ()
         geokeys = {
-            keys[n]: keys[n + 3]
-            for n in range(4, len(keys) - 3, 4)
-            if keys[n + 1] == 0
+            entries[n]: entries[n + 3]
+            for n in range(0, len(entries) - 3, 4)
+            if entries[n + 1] == 0
         }
         nodata = float(tags[42113]) if 42113 in tags else None
         alt_dem = None if info_only else numpy.array(im, dtype=numpy.float32)
