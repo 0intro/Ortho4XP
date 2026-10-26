@@ -48,6 +48,18 @@ def right_button(widget):
 
 
 ################################################################################
+def link_dir(target, link):
+    # A junction on Windows, which takes no privilege, and a symbolic link
+    # elsewhere. CPython's _winapi makes the junction as mklink /J does.
+    if sys.platform == "win32":
+        import _winapi
+
+        _winapi.CreateJunction(target, link)
+    else:
+        os.symlink(target, link)
+
+
+################################################################################
 def run_step(step, *args):
     # Steps clear UI.is_working only when they return, so an exception
     # would leave every button idle.
@@ -1791,12 +1803,11 @@ class Ortho4XP_Earth_Preview(tk.Toplevel):
             os.remove(link)
         except:
             pass
-        if ("dar" in sys.platform) or (
-            "win" not in sys.platform
-        ):  # Mac and Linux
-            os.system("ln -s " + ' "' + target + '" "' + link + '"')
-        else:
-            os.system('MKLINK /J "' + link + '" "' + target + '"')
+        try:
+            link_dir(target, link)
+        except OSError as e:
+            UI.vprint(0, "ERROR: Could not link", link, "to", target + ":", e)
+            return
         if not self.grouped:
             if not OsX:
                 self.canvas.itemconfig(

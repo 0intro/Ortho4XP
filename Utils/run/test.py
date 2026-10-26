@@ -395,6 +395,23 @@ if status != 1 or os.path.exists("pwned"):
     sys.exit("a grid argument that holds code: exit status " + str(status) + ", want 1 and no code run")
 """
 
+# Links a tile into Custom Scenery as the GUI does, through paths that sh
+# or cmd would read as commands, quoted or not.
+link_code = """
+import os
+import O4_GUI_Utils as GUI
+for name in ("Custom Scenery $(touch pwned) & echo", "Custom_Scenery&%OS%"):
+    base = os.path.abspath(name)
+    target = os.path.join(base, "zOrtho4XP_+45+005_build")
+    link = os.path.join(base, "zOrtho4XP_+45+005")
+    os.makedirs(target)
+    GUI.link_dir(target, link)
+    if not os.path.samefile(link, target):
+        sys.exit(link + ": links elsewhere than " + target)
+if os.path.exists("pwned"):
+    sys.exit("linking ran a command from the path")
+"""
+
 # A Global Scenery DSF in the text form of DSFTool, with the two rasters
 # that Step 3 copies, a beach that overlays leave out by default, a
 # forest, and a road. It goes in a 7z archive, as in X-Plane 12.
@@ -799,6 +816,7 @@ def test_tile(work, top):
             f.write("zone_list.append(" + str(zone) + ")\n")
     errors += check("legacy", legacy_code, [legacy, repr(config["zone_list"])], work, top, log)
     errors += check("7z", seven_zip_code, [], work, top, log)
+    errors += check("link", link_code, [], work, top, log)
     errors += check("geotiff", geotiff_code, [os.path.join(top, config["custom_dem"])], work, top, log)
     errors += check("opentopography", opentopography_code, [], work, top, log)
     errors += check("community", community_code, [], work, top, log)
