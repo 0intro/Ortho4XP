@@ -272,7 +272,7 @@ if __name__ == "__main__":
         sys.exit("\n".join(errors))
 
     archive = os.path.join(build_dir, "Ortho4XP-" + git("describe", "--tags", "--always") + "-" + target["archive"])
-    mtime = int(git("log", "-1", "--format=%ct"))
+    mtime = int(git("log", "-1", "--no-show-signature", "--format=%ct"))
     if archive.endswith(".zip"):
         write_zip(archive, top, mtime)
     else:

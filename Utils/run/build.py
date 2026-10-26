@@ -14,7 +14,7 @@ def set_source_date():
     if "SOURCE_DATE_EPOCH" in os.environ:
         return
     try:
-        r = subprocess.run(["git", "-C", configure.utils_dir, "log", "-1", "--format=%ct"],
+        r = subprocess.run(["git", "-C", configure.utils_dir, "log", "-1", "--no-show-signature", "--format=%ct"],
             stdout = subprocess.PIPE, stderr = subprocess.DEVNULL, text = True)
     except OSError:
         return
