@@ -24,6 +24,8 @@ usage = "usage: bundle.py lin|win|mac-arm64|mac-x86_64"
 
 root_dir = os.path.dirname(configure.utils_dir)
 build_dir = os.path.join(configure.utils_dir, "build")
+requirements_txt = os.path.join(root_dir, "requirements.txt")
+wheels_txt = os.path.join(configure.utils_dir, "run", "wheels.txt")
 
 python_url = "https://github.com/astral-sh/python-build-standalone/releases/download/20261021/"
 python_version = "3.15"
@@ -103,6 +105,16 @@ system_dlls = {
     "shlwapi.dll", "user32.dll", "userenv.dll", "version.dll",
     "winmm.dll", "winspool.drv", "ws2_32.dll",
 }
+
+# The options that make pip choose the wheels of target.
+def pip_options(target):
+    return ["--no-deps", "--only-binary=:all:", "--platform", target["platform"], "--implementation", "cp",
+        "--python-version", python_version, "--abi", "cp" + python_version.replace(".", "")]
+
+# The name==version lines of a requirements file.
+def pins(path):
+    with open(path) as f:
+        return re.findall(r"^\S+==\S+", f.read(), re.M)
 
 def files(top):
     for dir, dirs, names in os.walk(top):
@@ -276,6 +288,8 @@ if __name__ == "__main__":
         print(usage, file = sys.stderr)
         sys.exit(2)
     target = targets[sys.argv[1]]
+    if sorted(pins(wheels_txt)) != sorted(pins(requirements_txt)):
+        sys.exit(wheels_txt + ": out of date with requirements.txt, run wheels.py")
     cfg = target["cfg"]
     stage = os.path.join(build_dir, "bundle", cfg["dir"])
     top = os.path.join(stage, "Ortho4XP")
@@ -295,10 +309,8 @@ if __name__ == "__main__":
     with tarfile.open(download(python_url + target["python"], target["sha256"])) as tar:
         tar.extractall(top, filter = "data")
     site = os.path.join(top, target["site"])
-    configure.run([sys.executable, "-m", "pip", "install", "--quiet", "--root-user-action=ignore", "--no-deps", "--no-compile",
-        "--only-binary=:all:", "--platform", target["platform"], "--implementation", "cp",
-        "--python-version", python_version, "--abi", "cp" + python_version.replace(".", ""),
-        "--target", site, "-r", os.path.join(root_dir, "requirements.txt")])
+    configure.run([sys.executable, "-m", "pip", "install", "--quiet", "--root-user-action=ignore", "--no-compile",
+        "--require-hashes", "--target", site, "-r", wheels_txt] + pip_options(target))
     shutil.rmtree(os.path.join(site, "bin"), ignore_errors = True)
     if cfg["dir"] == "win":
         # The Rtree DLLs need msvcp140.dll from the Visual C++ runtime,
