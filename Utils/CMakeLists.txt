@@ -22,6 +22,13 @@ if(NOT APPLE)
     set(static -static)
 endif()
 
+# The programs name their source files, in assertions for example, as paths
+# under the Utils folder, which leaves the folder of Ortho4XP out of them.
+# NVTT takes the option in a string of flags, which the shell splits, hence
+# the quotes there.
+add_compile_options("-ffile-prefix-map=${CMAKE_SOURCE_DIR}=.")
+set(prefix_map "-ffile-prefix-map=\"${CMAKE_SOURCE_DIR}\"=.")
+
 add_executable(Triangle4XP src/Triangle4XP.c)
 target_link_libraries(Triangle4XP m ${static})
 
@@ -156,6 +163,8 @@ ExternalProject_Add(nvtt
         -DCMAKE_OSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}
         -DCMAKE_BUILD_TYPE=Release
         -DCMAKE_EXE_LINKER_FLAGS=${static}
+        -DCMAKE_C_FLAGS=${prefix_map}
+        -DCMAKE_CXX_FLAGS=${prefix_map}
         -DCMAKE_POLICY_VERSION_MINIMUM=3.10
         -DCMAKE_DISABLE_FIND_PACKAGE_CUDA=ON
     BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --target nvcompress
