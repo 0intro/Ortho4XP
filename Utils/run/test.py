@@ -260,6 +260,30 @@ if errors:
     sys.exit("\\n".join(errors))
 """
 
+# A mesh of two triangles, whose header moulinette copies as it is.
+small_mesh = """MeshVersionFormatted 2 %d %%
+Dimension 3
+
+Vertices
+4
+5.1 45.1 0.001 0
+5.2 45.1 0.002 0
+5.1 45.2 0.003 0
+5.2 45.2 0.004 0
+
+Normals
+4
+0.1 0.2 0
+0.1 0.2 0
+0.3 0.4 0
+0.3 0.4 0
+
+Triangles
+2
+1 2 3 1
+2 4 3 1
+"""
+
 # The GUI, driven in-process.
 gui_code = """
 import os
@@ -491,6 +515,7 @@ def test_tile(work, top):
     errors += check("norasters", no_rasters_code, [os.path.join(work, "Global Scenery 11")], work, top, log)
 
     errors += check("sortmesh", sort_mesh_code, [], work, top, log)
+    errors += test_moulinette(work, top, log)
 
     poly = os.path.join(work, "square.poly")
     with open(poly, "w") as f:
@@ -499,6 +524,19 @@ def test_tile(work, top):
     if status != 0 or not all(os.path.exists(os.path.join(work, "square.1." + ext)) for ext in ("node", "ele")):
         errors.append("triangle -pAYPQ: exit status " + str(status))
     return errors
+
+# moulinette on small meshes.
+def test_moulinette(work, top, log):
+    moulinette = os.path.join(top, "Utils", sys_dir, "moulinette" + exe)
+    mesh = os.path.join(work, "small.mesh")
+    with open(mesh, "w") as f:
+        f.write(small_mesh)
+    status = run([moulinette, "0", mesh], work, log, 60)
+    with open(mesh) as f:
+        header = f.readline()
+    if status != 0 or header != small_mesh.splitlines(True)[0]:
+        return ["moulinette: header " + repr(header) + ", status " + str(status)]
+    return []
 
 def test_gui(work, top):
     import tkinter

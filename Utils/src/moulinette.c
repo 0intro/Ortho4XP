@@ -479,7 +479,7 @@ Write:
 		goto Out;
 	}
 	printf("  Writing mesh file %s ...\n", dst);
-	fprintf(f, header);
+	fputs(header, f);
 	fputs("Dimension 3\n", f);
 	if (outvert != NULL) {
 		fprintf(f, "\nVertices\n%d\n", nv);
