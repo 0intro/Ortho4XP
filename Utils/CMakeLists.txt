@@ -1,4 +1,5 @@
-# SOURCE_SUBDIR needs 3.18, and C_STANDARD 17 needs 3.21.
+# SOURCE_SUBDIR needs 3.18, and C_STANDARD 17 and the file(COPY_FILE) of
+# patch.cmake need 3.21.
 cmake_minimum_required(VERSION 3.21...3.24)
 cmake_policy(VERSION 3.21...3.24)
 
@@ -33,11 +34,28 @@ target_link_libraries(moulinette m ${static})
 
 include(FetchContent)
 
+# The command that runs a patch script in a fetched source directory. The
+# hashes of the script and of patch.cmake in the command make the patch
+# step run again when either changes, and editing them configures again.
+function(patch_command var script)
+    set(files ${CMAKE_CURRENT_SOURCE_DIR}/src/patch.cmake
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/${script})
+    set(hash "")
+    foreach(file ${files})
+        file(SHA256 ${file} h)
+        string(APPEND hash ${h})
+    endforeach()
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${files})
+    set(${var} ${CMAKE_COMMAND} -Dhash=${hash}
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/src/${script} PARENT_SCOPE)
+endfunction()
+
 # DSFTool from X-Plane Scenery Tools 23-4, the head of its release branch.
+patch_command(dsftool_patch patch-dsftool.cmake)
 FetchContent_Declare(xptools
     URL https://github.com/X-Plane/xptools/archive/4610cac6a0ee8692840740ea93a9ba920330166b.tar.gz
     URL_HASH SHA256=d55f532a5f8e2e39561636d2a09edbd2d4ad7939fc8668a1d4c3dda4dd66d3bd
-    PATCH_COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_SOURCE_DIR}/src/patch-dsftool.cmake
+    PATCH_COMMAND ${dsftool_patch}
 )
 FetchContent_MakeAvailable(xptools)
 set(xpt ${xptools_SOURCE_DIR}/src)
@@ -89,10 +107,11 @@ if(APPLE)
     target_compile_definitions(medit PRIVATE GL_SILENCE_DEPRECATION)
     target_link_libraries(medit "-framework GLUT" "-framework OpenGL" m)
 else()
+    patch_command(freeglut_patch patch-freeglut.cmake)
     FetchContent_Declare(freeglut
         URL https://github.com/freeglut/freeglut/releases/download/v3.8.0/freeglut-3.8.0.tar.gz
         URL_HASH SHA256=674dcaff25010e09e450aec458b8870d9e98c46f99538db457ab659b321d9989
-        PATCH_COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_SOURCE_DIR}/src/patch-freeglut.cmake
+        PATCH_COMMAND ${freeglut_patch}
     )
     set(FREEGLUT_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
     set(FREEGLUT_BUILD_STATIC_LIBS ON CACHE BOOL "" FORCE)
@@ -122,10 +141,11 @@ include(ExternalProject)
 # On a Mac, one build makes a universal nvcompress. The list of
 # architectures reaches NVTT with | in place of ;.
 string(REPLACE ";" "|" osx_architectures "${CMAKE_OSX_ARCHITECTURES}")
+patch_command(nvtt_patch patch-nvtt.cmake)
 ExternalProject_Add(nvtt
     URL https://github.com/castano/nvidia-texture-tools/archive/refs/tags/2.1.2.tar.gz
     URL_HASH SHA256=0187336b0285038fab4f4a6b7654f51beaebab040b6aad53c147c917c5ab519b
-    PATCH_COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_SOURCE_DIR}/src/patch-nvtt.cmake
+    PATCH_COMMAND ${nvtt_patch}
     LIST_SEPARATOR |
     CMAKE_ARGS
         -DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}

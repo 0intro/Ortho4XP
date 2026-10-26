@@ -3,14 +3,11 @@
 # title deletes the property None, an X error that ends the program.
 # Runs in the freeglut source directory.
 
+cmake_minimum_required(VERSION 3.21)
+include(${CMAKE_CURRENT_LIST_DIR}/patch.cmake)
+
 foreach(atom NetWMName NetWMIconName)
-    set(path src/x11/fg_window_x11.c)
-    set(old "if(set_utf8_title(win, fgDisplay.pDisplay.${atom}, str) == -1) {")
-    set(new "if(fgDisplay.pDisplay.${atom} && set_utf8_title(win, fgDisplay.pDisplay.${atom}, str) == -1) {")
-    file(READ ${path} text)
-    string(REPLACE "${old}" "${new}" patched "${text}")
-    if(patched STREQUAL text)
-        message(FATAL_ERROR "${path}: missing ${old}")
-    endif()
-    file(WRITE ${path} "${patched}")
+    patch(src/x11/fg_window_x11.c
+        "if(set_utf8_title(win, fgDisplay.pDisplay.${atom}, str) == -1) {"
+        "if(fgDisplay.pDisplay.${atom} && set_utf8_title(win, fgDisplay.pDisplay.${atom}, str) == -1) {")
 endforeach()
