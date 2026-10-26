@@ -28,26 +28,25 @@ win_cfg = {
         "toolchain":"mingw-on-linux.cmake"
       }
 
+systems = {"lin": lin_cfg, "mac": mac_cfg, "win": win_cfg}
+
+# The build type and the systems that the arguments name, release and the
+# systems that this host builds by default. configure.py, build.py, and
+# install.py take the same arguments.
 def parse_args(argv):
-    build_type = ""
+    build_type = "Release"
     os_cfg = []
-    dest = ""
-    data_dest = ""
     for arg in argv[1:]:
-        if "debug" in arg.lower():
-            build_type = "Debug"
-        if "release" in arg.lower():
-            build_type = "Release"
-        if "lin" in arg.lower():
-            os_cfg.append(lin_cfg)
-        if "mac" in arg.lower():
-            os_cfg.append(mac_cfg)
-        if "win" in arg.lower():
-            os_cfg.append(win_cfg)
-            
-    if (not  build_type):
-        build_type = "Release"
-    if (not os_cfg):
+        word = arg.lower()
+        if word in ("debug", "release"):
+            build_type = word.capitalize()
+        elif word in systems:
+            if systems[word] not in os_cfg:
+                os_cfg.append(systems[word])
+        else:
+            print("usage: " + os.path.basename(argv[0]) + " [debug|release] [lin] [mac] [win]", file = sys.stderr)
+            sys.exit(2)
+    if not os_cfg:
         os_cfg = [mac_cfg] if sys.platform == "darwin" else [lin_cfg, win_cfg]
     return (build_type, os_cfg)
 
