@@ -81,8 +81,8 @@ target_compile_definitions(DSFTool PRIVATE DEV=0)
 target_include_directories(DSFTool PRIVATE ${xpt}/GUI ${xpt}/Utils ${xpt}/DSF
     ${xpt}/DSF/tri_stripper_101 ${xpt}/lzma19/C)
 # The DSF atom names are multicharacter constants.
-target_compile_options(DSFTool PRIVATE "SHELL:-include ${xpt}/Obj/XDefs.h"
-    -Wno-multichar)
+target_compile_options(DSFTool PRIVATE
+    "SHELL:-include \"${xpt}/Obj/XDefs.h\"" -Wno-multichar)
 # C++17 and later make the byte of MinGW's rpcndr.h clash with std::byte.
 set_target_properties(DSFTool PROPERTIES
     CXX_STANDARD 14 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
@@ -129,7 +129,7 @@ else()
         # Without errno, sqrtf is one instruction.
         set_target_properties(freeglut_static PROPERTIES C_STANDARD 17)
         target_compile_options(freeglut_static PRIVATE -fno-math-errno
-            "SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/src/glibc-compat.h")
+            "SHELL:-include \"${CMAKE_CURRENT_SOURCE_DIR}/src/glibc-compat.h\"")
         target_compile_options(medit PRIVATE -fno-math-errno)
         find_package(OpenGL REQUIRED)
         target_link_libraries(medit freeglut_static OpenGL::GLU OpenGL::GL m)
