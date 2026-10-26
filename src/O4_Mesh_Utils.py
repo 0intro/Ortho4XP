@@ -65,7 +65,9 @@ def community_mesh(tile):
     timer = time.time()
     UI.vprint(0, "Querying", url, "...")
     try:
-        r = requests.get(url, timeout=30)
+        r = requests.get(
+            url, timeout=30, headers={"User-Agent": O4_Version.user_agent}
+        )
         if "[200]" in str(r):
             UI.vprint(0, "We've got something !")
             f = open(

@@ -6,7 +6,7 @@ scaledenominator= 7.737142857141884E7 3.868571428570942E7 1.934285714285471E7 96
 tile_size=256
 url_template=https://tilecache.norgeibilder.no/arcgis/rest/services/Nibcache_UTM33_EUREF89_v2/MapServer/tile/{zoom}/{y}/{x}?token={api_key}
 api_key=
-fake_headers={'Referer':'www.norgeibilder.no'}
+fake_headers={'User-Agent':user_agent_ortho4xp,'Referer':'www.norgeibilder.no'}
 max_threads=16
 imagery_dir=grouped
 in_GUI=False

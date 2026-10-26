@@ -46,13 +46,15 @@ def box(lat0, lon0, lat1, lon1):
 
 # The tile config, and the OSM ways as (lat, lon) lists with their tags.
 # The coastline runs along lat + lon = 50.25 with the sea to the south
-# west, and the ZL 14 zone straddles it. The airport lies on the plateau
-# of the DEM and gets ZL 15 textures, and the motorway climbs the steep
-# flank of its hill, which makes Step 1 level it.
+# west, and the ZL 14 zone straddles it. The zone takes its imagery from
+# TEST2, which sends the generic request headers, and the rest of the tile
+# from TEST, which sends headers of its own. The airport lies on the
+# plateau of the DEM and gets ZL 15 textures, and the motorway climbs the
+# steep flank of its hill, which makes Step 1 level it.
 config = {
     "default_website": "TEST",
     "default_zl": 12,
-    "zone_list": [([x for p in box(45.05, 5.05, 45.2, 5.2) for x in p], 14, "TEST")],
+    "zone_list": [([x for p in box(45.05, 5.05, 45.2, 5.2) for x in p], 14, "TEST2")],
     "mesh_zl": 16,
     "custom_dem": os.path.join("Elevation_data", "test.hgt"),
     "road_level": 1,
@@ -172,15 +174,42 @@ if got.shape != (3601, 3601) or got.any():
     sys.exit("plain.tif: read without georeference, want zero altitude")
 """
 
+# serve serves files, a dict of bytes by path, and answers 404 for other
+# paths. It returns the URL of the server, and the paths and the user
+# agents of the requests, which check_agents requires to name Ortho4XP.
+file_server = """
+import http.server
+import threading
+def serve(files):
+    (paths, agents) = ([], set())
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            paths.append(self.path)
+            agents.add(self.headers.get("User-Agent"))
+            if self.path not in files:
+                self.send_error(404)
+                return
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(files[self.path])))
+            self.end_headers()
+            self.wfile.write(files[self.path])
+        def log_message(self, *args):
+            pass
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target = server.serve_forever, daemon = True).start()
+    return ("http://127.0.0.1:" + str(server.server_port) + "/", paths, agents)
+def check_agents(agents):
+    if any(not str(agent).startswith("Ortho4XP/") for agent in agents):
+        sys.exit("user agents " + str(sorted(map(str, agents))) + ", want Ortho4XP/")
+"""
+
 # SRTM and ALOS tiles as OpenTopography serves them, served here: the DEM
 # of the tile holds the served tile, a neighbor of sea (404) reads as zero
 # altitude, a downloaded tile serves again from Elevation_data, and an
 # SRTM .hgt placed by hand goes before the download. The labels of 1.40
 # name the sources too.
-opentopography_code = geotiff_writer + """
-import http.server
+opentopography_code = geotiff_writer + file_server + """
 import os
-import threading
 import O4_DEM_Utils as DEM
 import O4_File_Names as FNAMES
 n = numpy.arange(3601, dtype = numpy.int16)
@@ -194,22 +223,7 @@ for (path, alt, point, compression) in ((srtm_path, srtm, True, "tiff_deflate"),
     write_geotiff(name, alt, point, -32768, compression)
     with open(name, "rb") as f:
         served[path] = f.read()
-paths = []
-class Handler(http.server.BaseHTTPRequestHandler):
-    def do_GET(self):
-        paths.append(self.path)
-        if self.path not in served:
-            self.send_error(404)
-            return
-        self.send_response(200)
-        self.send_header("Content-Length", str(len(served[self.path])))
-        self.end_headers()
-        self.wfile.write(served[self.path])
-    def log_message(self, *args):
-        pass
-server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-threading.Thread(target = server.serve_forever, daemon = True).start()
-DEM.opentopography_url = "http://127.0.0.1:" + str(server.server_port) + "/"
+(DEM.opentopography_url, paths, agents) = serve(served)
 hgt = FNAMES.base_file_name(lat - 1, lon) + "_SRTMv3.hgt"
 os.makedirs(os.path.dirname(hgt), exist_ok = True)
 numpy.full((3601, 3601), 7, ">i2").tofile(hgt)
@@ -231,6 +245,34 @@ for path in (srtm_path, alos_path):
         sys.exit(path + ": " + str(paths.count(path)) + " requests, want 1")
 if any("N44E005" in path for path in paths):
     sys.exit("requested the tile south, which has an .hgt")
+check_agents(agents)
+"""
+
+# The mesh of the tile from a community server, served here in a 7z
+# archive.
+community_code = file_server + """
+import os
+import subprocess
+import O4_Config_Utils as CFG
+import O4_File_Names as FNAMES
+import O4_Mesh_Utils as MESH
+import O4_Overlay_Utils as OVL
+tile = CFG.Tile(45, 5, "")
+mesh = FNAMES.mesh_file(tile.build_dir, tile.lat, tile.lon)
+with open(mesh, "rb") as f:
+    want = f.read()
+subprocess.run([OVL.seven_zip(), "a", "mesh.7z", mesh], stdout = subprocess.DEVNULL, check = True)
+with open("mesh.7z", "rb") as f:
+    served = {"/" + os.path.basename(mesh) + ".7z": f.read()}
+os.remove(mesh)
+(MESH.community_prefix, paths, agents) = serve(served)
+MESH.community_server = True
+if not MESH.community_mesh(tile):
+    sys.exit("community_mesh failed")
+with open(mesh, "rb") as f:
+    if f.read() != want:
+        sys.exit(mesh + ": differs from the served one")
+check_agents(agents)
 """
 
 # A Global Scenery DSF in the text form of DSFTool, with the two rasters
@@ -564,11 +606,12 @@ def test_tile(work, top):
     for (suffix, ways) in osm.items():
         write_osm(os.path.join(osm_dir, tile + "_" + suffix + ".osm.bz2"), ways)
     os.makedirs(os.path.join(top, "Providers", "Test"))
-    with open(os.path.join(top, "Providers", "Test", "TEST.lay"), "w") as f:
-        f.write("grid_type=webmercator\n")
-        f.write("url_template=http://127.0.0.1:" + str(server.server_port) + "/{zoom}/{x}/{y}.jpg\n")
-        f.write("in_GUI=False\n")
-        f.write("fake_headers={'User-Agent': user_agent_ortho4xp}\n")
+    for (code, headers) in (("TEST", "fake_headers={'User-Agent': user_agent_ortho4xp}\n"), ("TEST2", "")):
+        with open(os.path.join(top, "Providers", "Test", code + ".lay"), "w") as f:
+            f.write("grid_type=webmercator\n")
+            f.write("url_template=http://127.0.0.1:" + str(server.server_port) + "/{zoom}/{x}/{y}.jpg\n")
+            f.write("in_GUI=False\n")
+            f.write(headers)
     with open(os.path.join(top, "Providers", "Test", "EVIL.lay"), "w") as f:
         f.write("url_template=http://127.0.0.1:9/{zoom}/{x}/{y}.jpg\n")
         f.write("in_GUI=" + payload + "\n")
@@ -606,6 +649,7 @@ def test_tile(work, top):
     errors += check("7z", seven_zip_code, [], work, top, log)
     errors += check("geotiff", geotiff_code, [os.path.join(top, config["custom_dem"])], work, top, log)
     errors += check("opentopography", opentopography_code, [], work, top, log)
+    errors += check("community", community_code, [], work, top, log)
     if os.path.exists(os.path.join(top, "pwned")):
         errors.append("a config or provider file ran code")
     textures = sorted(glob.glob(os.path.join(build, "textures", "*.dds")))
