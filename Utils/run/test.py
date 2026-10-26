@@ -233,10 +233,14 @@ def check_agents(agents):
 
 # SRTM and ALOS tiles as OpenTopography serves them, served here: the DEM
 # of the tile holds the served tile, a neighbor of sea (404) reads as zero
-# altitude, a downloaded tile serves again from Elevation_data, and an
-# SRTM .hgt placed by hand goes before the download. The labels of 1.40
-# name the sources too.
+# altitude, and so does the SRTM tile north, for which the server sends
+# the page of a captive portal, which stays out of Elevation_data. A
+# downloaded tile serves again from Elevation_data, an SRTM .hgt placed by
+# hand goes before the download, and a missing tile gets a warning when it
+# is the tile of the build. The labels of 1.40 name the sources too.
 opentopography_code = geotiff_writer + file_server + """
+import contextlib
+import io
 import os
 import O4_DEM_Utils as DEM
 import O4_File_Names as FNAMES
@@ -251,6 +255,7 @@ for (path, alt, point, compression) in ((srtm_path, srtm, True, "tiff_deflate"),
     write_geotiff(name, alt, point, -32768, compression)
     with open(name, "rb") as f:
         served[path] = f.read()
+served["/SRTM_GL1/SRTM_GL1_srtm/N46E005.tif"] = b"<html><body>Log in to the network</body></html>"
 (DEM.opentopography_url, paths, agents) = serve(served)
 hgt = FNAMES.base_file_name(lat - 1, lon) + "_SRTMv3.hgt"
 os.makedirs(os.path.dirname(hgt), exist_ok = True)
@@ -273,6 +278,14 @@ for path in (srtm_path, alos_path):
         sys.exit(path + ": " + str(paths.count(path)) + " requests, want 1")
 if any("N44E005" in path for path in paths):
     sys.exit("requested the tile south, which has an .hgt")
+portal = FNAMES.elevation_data("SRTM", lat + 1, lon)
+if os.path.exists(portal):
+    sys.exit(portal + ": saved the page of a captive portal")
+out = io.StringIO()
+with contextlib.redirect_stdout(out):
+    got = DEM.ensure_elevation("SRTM", lat + 2, lon, True)
+if got or "WARNING: No SRTM tile" not in out.getvalue():
+    sys.exit("a missing tile of the build: " + str(got) + ", " + repr(out.getvalue()) + ", want 0 and a warning")
 check_agents(agents)
 """
 
