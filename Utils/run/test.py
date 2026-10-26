@@ -957,6 +957,13 @@ def test_tile(work, top, errors):
     off = [(lon, z) for (lon, z) in on_ramp if abs(z - (450 - 30 * (lon - lon0) / (lon1 - lon0))) > 0.5]
     if len(on_ramp) < 10 or off:
         errors.append("ramp.patch.osm: " + str(len(off)) + " of " + str(len(on_ramp)) + " vertices off the profile, such as " + str(off[:3]))
+    # The rejected patches add no vertices: their boxes, 1.5 km long and
+    # 67 m wide on the plateau, where the mesh is coarse, hold none.
+    for name in ("open", "zero"):
+        ((lat0, lon0), (lat1, lon1)) = (patches[name][0][0][0], patches[name][0][0][2])
+        inside = [z for (lon, lat, z) in vertices if lon0 <= lon <= lon1 and lat0 <= lat <= lat1]
+        if inside:
+            errors.append(name + ".patch.osm: " + str(len(inside)) + " vertices in its box, want none")
     legacy = os.path.join(work, "legacy.cfg")
     with open(legacy, "w") as f:
         for zone in config["zone_list"] + [payload]:
