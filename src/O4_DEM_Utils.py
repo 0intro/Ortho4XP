@@ -501,14 +501,12 @@ def read_elevation_from_file(
         x1 = y1 = 1
         epsg = 4326
         nodata = -32768
-    elif has_gdal:
+    elif has_gdal or file_name.lower().endswith((".tif", ".tiff")):
         try:
-            ds = gdal.Open(file_name)
-            rs = ds.GetRasterBand(1)
-            if not info_only:
-                alt_dem = rs.ReadAsArray().astype(numpy.float32)
-            (nxdem, nydem) = (ds.RasterXSize, ds.RasterYSize)
-            nodata = rs.GetNoDataValue()
+            read_raster = read_raster_gdal if has_gdal else read_geotiff
+            (alt_dem, geo, nodata, epsg, nxdem, nydem) = read_raster(
+                file_name, info_only
+            )
             if nodata is None:
                 UI.vprint(
                     1,
@@ -524,9 +522,7 @@ def read_elevation_from_file(
                 if not info_only:
                     alt_dem[alt_dem == nodata] = -32768
                 nodata = -32768
-            try:
-                epsg = int(ds.GetProjection().split('"')[-2])
-            except:
+            if epsg is None:
                 UI.vprint(
                     1,
                     "    WARNING: raster DEM does not advertise its EPSG ",
@@ -546,7 +542,6 @@ def read_elevation_from_file(
                     ". Only EPSG:4326 is supported, result is likely to ",
                     "be non sense.",
                 )
-            geo = ds.GetGeoTransform()
             # We are assuming AREA_OR_POINT is area here
             x0 = geo[0] + 0.5 * geo[1] - lon
             y1 = geo[3] + 0.5 * geo[5] - lat
@@ -568,7 +563,7 @@ def read_elevation_from_file(
             x1 = y1 = 1
             epsg = 4326
             nodata = -32768
-    elif not has_gdal:
+    else:
         UI.lvprint(
             1,
             "   WARNING: unsupported raster (install Gdal):",
@@ -585,6 +580,54 @@ def read_elevation_from_file(
         epsg = 4326
         nodata = -32768
     return (epsg, x0, y0, x1, y1, nodata, nxdem, nydem, alt_dem)
+
+
+def read_raster_gdal(file_name, info_only):
+    ds = gdal.Open(file_name)
+    rs = ds.GetRasterBand(1)
+    alt_dem = None if info_only else rs.ReadAsArray().astype(numpy.float32)
+    try:
+        epsg = int(ds.GetProjection().split('"')[-2])
+    except (IndexError, ValueError):
+        epsg = None
+    return (
+        alt_dem,
+        ds.GetGeoTransform(),
+        rs.GetNoDataValue(),
+        epsg,
+        ds.RasterXSize,
+        ds.RasterYSize,
+    )
+
+
+# Reads a GeoTIFF with Pillow, and georeferences it as GDAL does from the
+# tags ModelPixelScale (33550), ModelTiepoint (33922), and GeoKeyDirectory
+# (34735) of OGC GeoTIFF 1.1 (https://docs.ogc.org/is/19-008r4/19-008r4.html),
+# and the nodata tag of GDAL (42113).
+def read_geotiff(file_name, info_only):
+    with Image.open(file_name) as im:
+        tags = im.tag_v2
+        (sx, sy) = tags[33550][:2]
+        (i, j, _, x, y, _) = tags[33922][:6]
+        # Four shorts per key after a header of four: the key, the tag that
+        # holds its value (0 when the entry holds it), a count, and the value.
+        keys = tags.get(34735, ())
+        geokeys = {
+            keys[n]: keys[n + 3]
+            for n in range(4, len(keys) - 3, 4)
+            if keys[n + 1] == 0
+        }
+        nodata = float(tags[42113]) if 42113 in tags else None
+        alt_dem = None if info_only else numpy.array(im, dtype=numpy.float32)
+        (nxdem, nydem) = im.size
+    # The EPSG code is the ProjectedCSType key, or else the GeographicType key.
+    epsg = geokeys.get(3072, geokeys.get(2048))
+    # GTRasterType 2 is PixelIsPoint: the tiepoint is the center of a pixel,
+    # and GDAL moves it to the pixel's corner.
+    if geokeys.get(1025) == 2:
+        (x, y) = (x - sx / 2, y + sy / 2)
+    geo = (x - i * sx, sx, 0.0, y + j * sy, 0.0, -sy)
+    return (alt_dem, geo, nodata, epsg, nxdem, nydem)
 
 
 ##############################################################################
