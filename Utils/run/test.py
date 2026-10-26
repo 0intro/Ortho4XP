@@ -1039,6 +1039,27 @@ def test_moulinette(work, top, log):
         with open(mesh) as f:
             if r.returncode != 1 or message.encode() not in r.stdout or f.read() != text:
                 errors.append("moulinette on a mesh with " + what + ": status " + str(r.returncode) + ", want 1, the error " + repr(message) + ", and the mesh as it was")
+    # A write that fails, here past the size that RLIMIT_FSIZE allows.
+    if os.name != "nt":
+        import resource
+        import signal
+        def limit():
+            signal.signal(signal.SIGXFSZ, signal.SIG_IGN)
+            resource.setrlimit(resource.RLIMIT_FSIZE, (64, 64))
+        with open(mesh, "w") as f:
+            f.write(small_mesh)
+        r = subprocess.run([moulinette, "0", mesh], cwd = work, stdout = subprocess.DEVNULL, preexec_fn = limit, timeout = 60)
+        with open(mesh) as f:
+            if r.returncode != 1 or f.read() != small_mesh or os.path.exists(mesh + ".tmp"):
+                errors.append("moulinette with a write that fails: status " + str(r.returncode) + ", want 1, the mesh as it was, and no .tmp")
+    # A rename that fails, here over a folder.
+    folder = os.path.join(work, "folder.mesh")
+    os.makedirs(folder)
+    with open(mesh, "w") as f:
+        f.write(small_mesh)
+    status = run([moulinette, "0", mesh, folder], work, log, 60)
+    if status != 1 or os.path.exists(folder + ".tmp"):
+        errors.append("moulinette with a rename that fails: status " + str(status) + ", want 1 and no .tmp")
     status = run([moulinette, "0"], work, log, 60)
     if status != 2:
         errors.append("moulinette without a mesh: status " + str(status) + ", want 2")
