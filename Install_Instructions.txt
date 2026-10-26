@@ -7,8 +7,9 @@ line-ends and will create a mess.
 NOTICE 2 : Linux, macOS, and Windows users: The release archives include
 Python, the modules, the programs, and 7-Zip. Unpack one in a folder you
 can write to, and run Ortho4XP (Linux and macOS) or Ortho4XP.cmd
-(Windows). On macOS, first run xattr -dr com.apple.quarantine Ortho4XP
-in the folder that holds it.
+(Windows). The macOS archives need macOS 14 or later on Apple silicon
+and macOS 15 or later on Intel. On macOS, first run
+xattr -dr com.apple.quarantine Ortho4XP in the folder that holds it.
 ------------------------------------------------------------------------
 
 The following instructions are for the script install :
@@ -85,6 +86,9 @@ You should be done. Launch "python Ortho4XP.py".
 
 macOS
 -----
+
+The script install needs macOS 14 or later on Apple silicon and macOS 15
+or later on Intel, as the archives do.
 
 1) In a Terminal window, install Homebrew (brew.sh), a package manager
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"

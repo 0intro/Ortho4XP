@@ -4,8 +4,9 @@ A scenery generator for the X-Plane flight simulator.
 The release archives for Linux and Windows (x86-64) and for macOS (Apple
 silicon and Intel) include Python, the modules, the programs, and 7-Zip:
 unpack one in a folder you can write to, and run Ortho4XP (Linux and
-macOS) or Ortho4XP.cmd (Windows). On macOS, first clear the quarantine
-that the browser puts on the download:
+macOS) or Ortho4XP.cmd (Windows). The macOS archives need macOS 14 or
+later on Apple silicon and macOS 15 or later on Intel. On macOS, first
+clear the quarantine that the browser puts on the download:
 
     xattr -dr com.apple.quarantine Ortho4XP
 
