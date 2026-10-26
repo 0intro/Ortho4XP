@@ -715,7 +715,7 @@ def include_patches(vector_map, tile):
                         )
                 elif "altitude_high" in wtags:
                     cplx_way = True
-                    if len(way) != 5 or (way[0] != way[-1]).all():
+                    if len(way) != 5 or (way[0] != way[-1]).any():
                         UI.vprint(
                             1,
                             "    Wrong number of nodes or non closed way for ",

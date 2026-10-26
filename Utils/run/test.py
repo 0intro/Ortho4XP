@@ -72,6 +72,15 @@ osm = {
     "water": [(box(45.84, 5.6, 45.852, 5.616), {"natural": "water", "name": "Test"})],
 }
 
+# Patches of the tile as OSM ways, by name: a ramp on the plateau that
+# falls from 450 m at its west end to 420 m at its east end, and a ramp
+# whose way ends 8 m east of its start, which Step 1 must reject.
+ramp = box(45.9, 5.4, 45.9006, 5.42)
+patches = {
+    "ramp": [(ramp, {"altitude_high": "450", "altitude_low": "420"})],
+    "open": [(box(45.95, 5.45, 45.9506, 5.47)[:-1] + [(45.95, 5.4501)], {"altitude_high": "450", "altitude_low": "420"})],
+}
+
 # Settings must never run code. The tests put this one in config files and
 # fields, and require that no file named pwned appears.
 payload = '__import__("pathlib").Path("pwned").touch()'
@@ -626,6 +635,8 @@ def test_tile(work, top):
         write_osm(os.path.join(osm_dir, tile + "_" + suffix + ".osm.bz2"), ways)
     patch_dir = os.path.join(top, "Patches", "+40+000", tile)
     os.makedirs(patch_dir)
+    for (name, ways) in patches.items():
+        write_osm(os.path.join(patch_dir, name + ".patch.osm"), ways)
     # A patch of the airport cut short, as a failed download leaves it.
     with open(os.path.join(patch_dir, "LFZZ.patch.osm"), "w") as f:
         f.write('<?xml version="1.0" encoding="UTF-8"?>\n<osm version="0.6">\n  <node id="1" lat="45.75" lon="5.25"/>\n')
@@ -670,15 +681,24 @@ def test_tile(work, top):
         errors.append("EVIL.lay: no warning for headers that hold code")
     if "Error in treating LFZZ.patch.osm" not in out or "Auto-patched 1 runway" not in out:
         errors.append("LFZZ.patch.osm: a truncated patch took the place of the runway of the airport")
+    if "non closed way" not in out:
+        errors.append("open.patch.osm: no warning for an open way")
     # The mesh reaches the 1200 m top of the hill only when Triangle4XP
     # reads the size of the DEM right. Its altitudes are in units of 100 km.
     mesh = os.path.join(build, "Data" + tile + ".mesh")
     with open(mesh) as f:
         lines = f.read().split("\n")
     i = lines.index("Vertices")
-    top_alt = 100000 * max(float(line.split()[2]) for line in lines[i + 2:i + 2 + int(lines[i + 1])])
+    vertices = [[float(x) for x in line.split()[:3]] for line in lines[i + 2:i + 2 + int(lines[i + 1])]]
+    top_alt = 100000 * max(v[2] for v in vertices)
     if not 1150 < top_alt < 1201:
         errors.append(mesh + ": highest vertex at " + str(round(top_alt)) + " m, want the 1200 m of the hill")
+    # The vertices of the ramp follow its plane profile.
+    ((lat0, lon0), (lat1, lon1)) = (ramp[0], ramp[2])
+    on_ramp = [(lon, 100000 * z) for (lon, lat, z) in vertices if lon0 <= lon <= lon1 and lat0 <= lat <= lat1]
+    off = [(lon, z) for (lon, z) in on_ramp if abs(z - (450 - 30 * (lon - lon0) / (lon1 - lon0))) > 0.5]
+    if len(on_ramp) < 10 or off:
+        errors.append("ramp.patch.osm: " + str(len(off)) + " of " + str(len(on_ramp)) + " vertices off the profile, such as " + str(off[:3]))
     legacy = os.path.join(work, "legacy.cfg")
     with open(legacy, "w") as f:
         for zone in config["zone_list"] + [payload]:
