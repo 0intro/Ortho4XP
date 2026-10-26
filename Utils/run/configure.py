@@ -15,10 +15,10 @@ lin_cfg = {
       }
 
 mac_cfg = { 
-        "name":"OSX",
+        "name":"macOS",
         "dir":"mac",
         "suff":"",
-        "toolchain":"osxcross-on-linux.cmake"
+        "toolchain":""
       }
 
 win_cfg = { 
@@ -27,8 +27,6 @@ win_cfg = {
         "suff":".exe",
         "toolchain":"mingw-on-linux.cmake"
       }
-
-all_cfg = [lin_cfg, mac_cfg, win_cfg]
 
 def parse_args(argv):
     build_type = ""
@@ -50,7 +48,7 @@ def parse_args(argv):
     if (not  build_type):
         build_type = "Release"
     if (not os_cfg):
-        os_cfg = all_cfg
+        os_cfg = [mac_cfg] if sys.platform == "darwin" else [lin_cfg, win_cfg]
     return (build_type, os_cfg)
 
 def build_dir(build_type, cfg):
@@ -73,6 +71,13 @@ if __name__ == "__main__":
         cmd = ["cmake", "-S", utils_dir, "-B", build_dir(build_type, cfg)]
         if cfg["toolchain"]:
             cmd.append("-DCMAKE_TOOLCHAIN_FILE=" + os.path.join(utils_dir, "toolchains", cfg["toolchain"]))
+        if cfg == mac_cfg:
+            # Universal programs, for macOS 14 and later, as the wheels of
+            # the archives need.
+            if sys.platform != "darwin":
+                sys.exit("configure.py: the macOS programs build on a Mac")
+            cmd += ["-G", "Unix Makefiles", "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64",
+                "-DCMAKE_OSX_DEPLOYMENT_TARGET=14.0"]
         cmd.append("-DCMAKE_BUILD_TYPE=" + build_type)
         run(cmd)
         print("Configuration done for " + cfg["name"] + ".")
