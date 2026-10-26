@@ -1021,6 +1021,19 @@ def test_moulinette(work, top, log):
         with open(mesh) as f:
             if status != 1 or f.read() != text:
                 errors.append("moulinette on a mesh with " + what + ": status " + str(status) + ", want 1 and the mesh as it was")
+    # A write that fails, here past the size that RLIMIT_FSIZE allows.
+    if os.name != "nt":
+        import resource
+        import signal
+        def limit():
+            signal.signal(signal.SIGXFSZ, signal.SIG_IGN)
+            resource.setrlimit(resource.RLIMIT_FSIZE, (64, 64))
+        with open(mesh, "w") as f:
+            f.write(small_mesh)
+        r = subprocess.run([moulinette, "0", mesh], cwd = work, stdout = subprocess.DEVNULL, preexec_fn = limit, timeout = 60)
+        with open(mesh) as f:
+            if r.returncode != 1 or f.read() != small_mesh:
+                errors.append("moulinette with a write that fails: status " + str(r.returncode) + ", want 1 and the mesh as it was")
     status = run([moulinette, "0"], work, log, 60)
     if status != 2:
         errors.append("moulinette without a mesh: status " + str(status) + ", want 2")

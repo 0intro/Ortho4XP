@@ -5,7 +5,8 @@
  * usage: moulinette zoomlevel sourcefile.mesh [destfile.mesh]
  *
  * It exits with status 1 when it cannot read or write a mesh, and leaves
- * the mesh as it was.
+ * the mesh as it was: it writes the new mesh beside the old, then renames
+ * it over.
  *
  * Pascal (Scratchfly @x-plane.org) wrote moulinette in C++, and Ortho4XP
  * shipped it as a binary. This file restates his program in C from that
@@ -27,6 +28,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 enum {
 	Linelen = 256,	/* longest line kept, newline included */
@@ -48,6 +52,7 @@ struct AvlNode {
 };
 
 static void *emalloc(size_t);
+static int replace(char*, char*);
 static int toolong(char*, FILE*);
 static char *voidlines(int);
 static int edgekey(int, int);
@@ -61,7 +66,7 @@ int
 main(int argc, char *argv[])
 {
 	char header[Linelen], line[Linelen], word[Linelen];
-	char *vert, *norm, *newvert, *newnorm, *outvert, *dst;
+	char *vert, *norm, *newvert, *newnorm, *outvert, *dst, *tmp;
 	int *tri, *newtri, *group, *valence, *info, *next, *stack, *pending, *map, *p, *q;
 	double *coord, x, y, z, lat, scale;
 	int nv, nn, nt, iv, in, it, state, zl, i, j, k, t, t2, h, a, b, c, d, v, n;
@@ -528,8 +533,12 @@ main(int argc, char *argv[])
 	outvert = newvert;
 
 Write:
+	/* the mesh goes to dst.tmp, which replaces dst once whole */
 	dst = argc < 4 ? argv[2] : argv[3];
-	f = fopen(dst, "w");
+	tmp = emalloc(strlen(dst) + sizeof ".tmp");
+	strcpy(tmp, dst);
+	strcat(tmp, ".tmp");
+	f = fopen(tmp, "w");
 	if (f == NULL) {
 		puts("  Error: Unable to write mesh file.");
 		return 1;
@@ -551,15 +560,32 @@ Write:
 			newtri[4*i + 2] + 1, newtri[4*i + 3]);
 	n = ferror(f);
 	if (fclose(f) != 0 || n != 0) {
+		remove(tmp);
 		puts("  Error: Unable to write mesh file.");
+		return 1;
+	}
+	if (replace(tmp, dst) != 0) {
+		printf("  Error: Unable to rename %s to %s.\n", tmp, dst);
 		return 1;
 	}
 	printf("    Write %d vertices, %d normals, %d triangles.\n", nv, nn, nt);
 	free(newtri);
 	free(outvert);
 	free(norm);
+	free(tmp);
 	puts("Finished.");
 	return 0;
+}
+
+/* renames file a to b, over a file b, which rename refuses on Windows */
+static int
+replace(char *a, char *b)
+{
+#ifdef _WIN32
+	return MoveFileExA(a, b, MOVEFILE_REPLACE_EXISTING) ? 0 : -1;
+#else
+	return rename(a, b);
+#endif
 }
 
 /* whether fgets cut line short of its newline before the end of f */
