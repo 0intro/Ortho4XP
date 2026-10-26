@@ -6,6 +6,7 @@ import hashlib
 import os
 import re
 import shutil
+import stat
 import struct
 import subprocess
 import sys
@@ -205,11 +206,18 @@ def check_macho(top, arch):
                 errors.append(path + " needs " + lib)
     return errors
 
+# The mode of a file or folder in the archives, whatever the umask that
+# made it.
+def mode(is_dir, perm):
+    return 0o755 if is_dir or perm & 0o111 else 0o644
+
 def write_tar(path, top, mtime):
     def reset(info):
         info.uid = info.gid = 0
         info.uname = info.gname = ""
         info.mtime = mtime
+        if info.isdir() or info.isfile():
+            info.mode = mode(info.isdir(), info.mode)
         return info
     with gzip.GzipFile(path, "wb", mtime = mtime) as f:
         with tarfile.open(fileobj = f, mode = "w") as tar:
@@ -222,7 +230,7 @@ def write_zip(path, top, mtime):
             name = os.path.relpath(file, os.path.dirname(top)).replace(os.sep, "/")
             info = zipfile.ZipInfo(name, date_time)
             info.compress_type = zipfile.ZIP_DEFLATED
-            info.external_attr = (os.stat(file).st_mode & 0xFFFF) << 16
+            info.external_attr = (stat.S_IFREG | mode(False, os.stat(file).st_mode)) << 16
             with open(file, "rb") as f, z.open(info, "w") as w:
                 shutil.copyfileobj(f, w)
 
