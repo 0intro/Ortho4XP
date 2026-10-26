@@ -303,6 +303,20 @@ gui.config_window.v_["masks_width"].set("[1, 2")
 gui.config_window.apply_changes()
 if TILE.skip_downloads is not False or CFG.masks_width != 100:
     errors.append("config window: kept invalid values")
+# Dragging the tile map with the right button moves it. Aqua Tk calls
+# the right button 2 before Tk 8.7, and 3 from then on.
+gui.open_earth_window()
+canvas = gui.earth_window.canvas
+import tkinter
+aqua = canvas.tk.call("tk", "windowingsystem") == "aqua"
+b = 2 if aqua and tkinter.TkVersion < 8.7 else 3
+gui.update()
+view = (canvas.xview(), canvas.yview())
+canvas.event_generate("<ButtonPress-%d>" % b, x = 200, y = 200)
+canvas.event_generate("<B%d-Motion>" % b, x = 100, y = 120)
+gui.update()
+if (canvas.xview(), canvas.yview()) == view:
+    errors.append("tile map: a drag with button " + str(b) + " left the map in place")
 gui.update()
 gui.exit_prg()
 if os.path.exists("pwned"):
