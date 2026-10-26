@@ -10,9 +10,12 @@ import configure
 def install(src, utils_dir, cfg):
     dst = os.path.join(utils_dir, cfg["dir"])
     os.makedirs(dst, exist_ok = True)
-    for name in ("Triangle4XP", "triangle", "moulinette", "DSFTool"):
+    for name in ("Triangle4XP", "triangle", "moulinette", "DSFTool", "medit"):
         shutil.copy2(os.path.join(src, name + cfg["suff"]), dst)
     shutil.copy2(os.path.join(utils_dir, "src", "DSFTool-LICENSE.txt"), dst)
+    shutil.copy2(os.path.join(src, "medit-LICENSE.txt"), dst)
+    if cfg["dir"] != "mac":
+        shutil.copy2(os.path.join(src, "freeglut-LICENSE.txt"), dst)
     if cfg["dir"] == "win":
         dst = os.path.join(dst, "nvcompress")
     shutil.copy2(os.path.join(src, "nvcompress" + cfg["suff"]), dst)

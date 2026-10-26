@@ -588,7 +588,27 @@ def test_gui(work, top):
     for text in ("Traceback", "Exception in Tkinter callback"):
         if text in out:
             errors.append("GUI printed " + text + ", see " + log)
-    return errors + check("gui", gui_code, [payload], work, top, log)
+    return errors + check("gui", gui_code, [payload], work, top, log) + test_medit(work, top, log)
+
+# medit shows a mesh, and runs until stopped. On Windows the kill also
+# loses its buffered output.
+def test_medit(work, top, log):
+    mesh = os.path.join(work, "medit.mesh")
+    with open(mesh, "w") as f:
+        f.write(small_mesh.replace(" %d %%", ""))
+    medit = subprocess.Popen([os.path.join(top, "Utils", sys_dir, "medit" + exe), mesh], cwd = work, env = offline_env(),
+        stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
+    time.sleep(5)
+    status = medit.poll()
+    medit.terminate()
+    out = medit.communicate()[0].decode("utf-8", "replace")
+    with open(log, "a", encoding = "utf-8") as f:
+        f.write(out)
+    if status is not None:
+        return ["medit: exit status " + str(status) + " while showing the mesh, see " + log]
+    if os.name != "nt" and "Creating scene" not in out:
+        return ["medit: no scene for the mesh, see " + log]
+    return []
 
 if __name__ == "__main__":
     if sys.argv[1:] not in ([], ["-gui"]):

@@ -27,7 +27,8 @@ jobs:
           dnf -y install git cmake make gcc gcc-c++ glibc-static
           libstdc++-static mingw64-gcc mingw64-gcc-c++
           mingw64-winpthreads-static python3 python3-pip tar xz zip
-          zlib-devel mingw64-zlib
+          zlib-devel mingw64-zlib mesa-libGL-devel mesa-libGLU-devel
+          libX11-devel libXi-devel libXrandr-devel
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
@@ -61,6 +62,10 @@ jobs:
           name: bundles
       - name: Unpack
         run: tar -xzf Ortho4XP-*-linux-x86_64.tar.gz
+      - name: Install OpenGL for medit
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y libgl1 libglu1-mesa libgl1-mesa-dri
       - name: Test
         run: Ortho4XP/python/bin/python3 Ortho4XP/Utils/run/test.py
       - name: Test the GUI
@@ -81,6 +86,8 @@ jobs:
           dnf -y install git python3.15 python3.15-tkinter 7zip
           xorg-x11-server-Xvfb xorg-x11-xauth dejavu-sans-fonts
           cmake make gcc gcc-c++ glibc-static libstdc++-static zlib-devel
+          mesa-libGL-devel mesa-libGLU-devel libX11-devel libXi-devel
+          libXrandr-devel mesa-dri-drivers
       - uses: actions/checkout@v7
       - name: Build the programs
         run: |

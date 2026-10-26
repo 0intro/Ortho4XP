@@ -100,8 +100,6 @@ def download(url, sha256):
         sys.exit(path + ": SHA-256 is " + digest + ", want " + sha256)
     return path
 
-# The programs outside python/ need at most glibc 2.28, like the
-# manylinux_2_28 wheels.
 def file_version(path):
     with open(path, "rb") as f:
         data = f.read()
@@ -110,6 +108,9 @@ def file_version(path):
     (ms, ls) = struct.unpack_from("<II", data, i + 8)
     return (ms >> 16, ms & 0xFFFF, ls >> 16, ls & 0xFFFF)
 
+# The programs outside python/ need at most glibc 2.28, like the
+# manylinux_2_28 wheels. medit links the system's OpenGL dynamically,
+# and building it on a current glibc makes it need 2.34.
 def check_elf(top):
     errors = []
     for path in files(top):
@@ -118,9 +119,10 @@ def check_elf(top):
         with open(path, "rb") as f:
             if f.read(4) != b"\x7fELF":
                 continue
+        most = [2, 34] if os.path.basename(path) == "medit" else [2, 28]
         out = subprocess.run(["objdump", "-T", path], capture_output = True, text = True).stdout
         for version in set(re.findall(r"GLIBC_([0-9.]+)", out)):
-            if [int(n) for n in version.split(".")] > [2, 28]:
+            if [int(n) for n in version.split(".")] > most:
                 errors.append(path + " needs GLIBC_" + version)
     return errors
 
