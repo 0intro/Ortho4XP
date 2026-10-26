@@ -88,8 +88,9 @@ patches = {
 payload = '__import__("pathlib").Path("pwned").touch()'
 
 # A tile config in the form of 1.20, which appends zones one per line,
-# and starts with the byte order mark of Notepad, and the global config,
-# which Python before 3.15 wrote in cp1252 on Windows.
+# holds a bool edited by hand to 1, and starts with the byte order mark
+# of Notepad. The global config is in cp1252, which Python before 3.15
+# wrote on Windows.
 legacy_code = """
 import ast
 import O4_Config_Utils as CFG
@@ -97,6 +98,8 @@ tile = CFG.Tile(45, 5, "")
 tile.read_from_config(sys.argv[1])
 if tile.zone_list != ast.literal_eval(sys.argv[2]):
     sys.exit("zones " + repr(tile.zone_list) + ", want " + sys.argv[2])
+if tile.use_masks_for_inland is not True:
+    sys.exit("use_masks_for_inland=1 read as " + repr(tile.use_masks_for_inland) + ", want True")
 if CFG.custom_scenery_dir != sys.argv[3]:
     sys.exit("custom_scenery_dir " + repr(CFG.custom_scenery_dir) + ", want " + repr(sys.argv[3]))
 """
@@ -833,6 +836,7 @@ def test_tile(work, top):
     with open(legacy, "w", encoding = "utf-8-sig") as f:
         for zone in config["zone_list"] + [payload]:
             f.write("zone_list.append(" + str(zone) + ")\n")
+        f.write("use_masks_for_inland=1\n")
     errors += check("legacy", legacy_code, [legacy, repr(config["zone_list"]), scenery_dir], work, top, log)
     errors += check("7z", seven_zip_code, [], work, top, log)
     errors += check("link", link_code, [], work, top, log)
