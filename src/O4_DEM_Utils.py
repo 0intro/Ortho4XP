@@ -780,7 +780,8 @@ def ensure_elevation(source, lat, lon, verbose=True):
                     os.replace(out_filename + ".part", out_filename)
     elif source in ("SRTM", "ALOS"):
         file_name = FNAMES.elevation_data(source, lat, lon)
-        if os.path.exists(file_name):
+        # elevation_data names an .hgt only when one was placed by hand.
+        if file_name.endswith(".hgt") or recyclable_tiff(file_name):
             UI.vprint(2, "   Recycling ", file_name)
             return 1
         UI.vprint(1, "    Downloading ", file_name, "from OpenTopography.")
@@ -809,7 +810,7 @@ def ensure_elevation(source, lat, lon, verbose=True):
                 )
             return 0
     elif source in ("NED1", "NED1/3"):
-        if os.path.exists(FNAMES.elevation_data(source, lat, lon)):
+        if recyclable_tiff(FNAMES.elevation_data(source, lat, lon)):
             UI.vprint(
                 2, "   Recycling ", FNAMES.elevation_data(source, lat, lon)
             )
@@ -843,6 +844,25 @@ def ensure_elevation(source, lat, lon, verbose=True):
     return 1
 
 ################################################################################
+# The first bytes of a TIFF and of a BigTIFF file, in either byte order.
+tiff_magic = (b"II*\0", b"MM\0*", b"II+\0", b"MM\0+")
+
+
+################################################################################
+# Whether file_name holds a TIFF file to read again. Another file, such as
+# the page of a captive portal that 1.40 saved for NED, or an empty one,
+# gets downloaded again.
+def recyclable_tiff(file_name):
+    if not os.path.exists(file_name):
+        return False
+    with open(file_name, "rb") as f:
+        if f.read(4) in tiff_magic:
+            return True
+    UI.vprint(1, "    WARNING:", file_name, "is damaged.")
+    return False
+
+
+################################################################################
 # Saves the GeoTIFF at url as file_name, through a temporary name, so that
 # an interrupted download leaves nothing that Ortho4XP would read again.
 # Returns 1 once the file is in place.
@@ -850,7 +870,7 @@ def download_geotiff(url, file_name, source, verbose):
     r = http_request(url, source, verbose)
     if not r:
         return 0
-    if r.content[:4] not in (b"II*\0", b"MM\0*", b"II+\0", b"MM\0+"):
+    if r.content[:4] not in tiff_magic:
         UI.lvprint(1, "    ERROR: The answer of", url, "is not a TIFF file.")
         return 0
     os.makedirs(os.path.dirname(file_name), exist_ok=True)

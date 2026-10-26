@@ -274,9 +274,11 @@ def check_agents(agents):
 # of the tile holds the served tile, a neighbor of sea (404) reads as zero
 # altitude, and so does the SRTM tile north, for which the server sends
 # the page of a captive portal, which stays out of Elevation_data. A
-# downloaded tile serves again from Elevation_data, an SRTM .hgt placed by
-# hand goes before the download, and a missing tile gets a warning when it
-# is the tile of the build. The labels of 1.40 name the sources too.
+# downloaded tile serves again from Elevation_data, while a cached page or
+# empty file, as earlier versions saved, downloads again. An SRTM .hgt
+# placed by hand goes before the download, and a missing tile gets a
+# warning when it is the tile of the build. The labels of 1.40 name the
+# sources too.
 opentopography_code = geotiff_writer + file_server + """
 import contextlib
 import io
@@ -299,6 +301,9 @@ served["/SRTM_GL1/SRTM_GL1_srtm/N46E005.tif"] = b"<html><body>Log in to the netw
 hgt = FNAMES.base_file_name(lat - 1, lon) + "_SRTMv3.hgt"
 os.makedirs(os.path.dirname(hgt), exist_ok = True)
 numpy.full((3601, 3601), 7, ">i2").tofile(hgt)
+with open(FNAMES.elevation_data("SRTM", lat, lon), "wb") as f:
+    f.write(served["/SRTM_GL1/SRTM_GL1_srtm/N46E005.tif"])
+open(FNAMES.elevation_data("ALOS", lat, lon), "wb").close()
 sources = [
     (DEM.available_sources[3], srtm),
     ("SRTMv3 (from OpenTopography) - NOW REQUIRES MANUAL DOWNLOAD", srtm),
