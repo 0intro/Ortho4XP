@@ -19,6 +19,7 @@ sys.dont_write_bytecode = True
 import tempfile
 import threading
 import time
+import traceback
 
 import numpy
 from PIL import Image
@@ -334,11 +335,17 @@ with open("mesh.7z", "rb") as f:
 os.remove(mesh)
 (MESH.community_prefix, paths, agents) = serve(served)
 MESH.community_server = True
-if not MESH.community_mesh(tile):
-    sys.exit("community_mesh failed")
-with open(mesh, "rb") as f:
-    if f.read() != want:
-        sys.exit(mesh + ": differs from the served one")
+# The checks after this one read the mesh, which a failure here restores.
+try:
+    if not MESH.community_mesh(tile):
+        sys.exit("community_mesh failed")
+    with open(mesh, "rb") as f:
+        got = f.read()
+finally:
+    with open(mesh, "wb") as f:
+        f.write(want)
+if got != want:
+    sys.exit(mesh + ": differs from the served one")
 check_agents(agents)
 """
 
@@ -842,7 +849,7 @@ def check(name, code, args, work, top, log, timeout = 300):
         return []
     return [name + ": " + line for line in err.splitlines() if line.strip()] or [name + ": exit status " + str(status) + ", see " + log]
 
-def test_tile(work, top):
+def test_tile(work, top, errors):
     image = Image.new("RGB", (256, 256), color)
     f = io.BytesIO()
     image.save(f, "JPEG", quality = 95)
@@ -887,7 +894,7 @@ def test_tile(work, top):
         f.write("skip_downloads=" + payload + "\n")
         f.write("custom_overlay_src=" + gs + "\n")
         f.write("custom_scenery_dir=" + scenery_dir + "\n")
-    errors = check("globalscenery", global_scenery_code, [gs], work, top, os.path.join(work, "Ortho4XP.log"))
+    errors += check("globalscenery", global_scenery_code, [gs], work, top, os.path.join(work, "Ortho4XP.log"))
     if errors:
         return errors
 
@@ -898,7 +905,8 @@ def test_tile(work, top):
     status = run([sys.executable, german, "Ortho4XP.py", str(lat), str(lon)], top, log, 1800)
     server.shutdown()
     if status != 0:
-        return ["Ortho4XP.py " + str(lat) + " " + str(lon) + ": exit status " + str(status) + ", see " + log]
+        errors.append("Ortho4XP.py " + str(lat) + " " + str(lon) + ": exit status " + str(status) + ", see " + log)
+        return errors
 
     with open(log, encoding = "utf-8", errors = "replace") as f:
         out = f.read()
@@ -1090,7 +1098,7 @@ def test_moulinette(work, top, log):
         errors.append("moulinette without a mesh: status " + str(status) + ", want 2")
     return errors
 
-def test_gui(work, top):
+def test_gui(work, top, errors):
     import tkinter
     from PIL import ImageTk
     try:
@@ -1098,7 +1106,8 @@ def test_gui(work, top):
         photo = ImageTk.PhotoImage(Image.new("RGB", (16, 16), color))
         tk.destroy()
     except Exception as e:
-        return ["Tk: " + repr(e)]
+        errors.append("Tk: " + repr(e))
+        return errors
     log = os.path.join(work, "Ortho4XP.log")
     with open(log, "wb") as f:
         gui = subprocess.Popen([sys.executable, "Ortho4XP.py"], cwd = top, env = offline_env(), stdout = f, stderr = subprocess.STDOUT)
@@ -1106,7 +1115,6 @@ def test_gui(work, top):
         status = gui.poll()
         gui.kill()
         gui.wait()
-    errors = []
     if status is not None:
         errors.append("GUI exited with status " + str(status))
     with open(log, encoding = "utf-8", errors = "replace") as f:
@@ -1114,7 +1122,9 @@ def test_gui(work, top):
     for text in ("Traceback", "Exception in Tkinter callback"):
         if text in out:
             errors.append("GUI printed " + text + ", see " + log)
-    return errors + check("gui", gui_code, [payload], work, top, log) + test_medit(work, top, log)
+    errors += check("gui", gui_code, [payload], work, top, log)
+    errors += test_medit(work, top, log)
+    return errors
 
 # medit shows a mesh, and runs until stopped. On Windows the kill also
 # loses its buffered output.
@@ -1143,7 +1153,12 @@ if __name__ == "__main__":
     work = tempfile.mkdtemp(prefix = "Ortho4XP-test-", dir = os.path.dirname(root_dir))
     top = os.path.join(work, "Ortho4XP")
     shutil.copytree(root_dir, top, ignore = ignore)
-    errors = test_gui(work, top) if sys.argv[1:] else test_tile(work, top)
+    # The test functions add to errors, which an exception keeps.
+    errors = []
+    try:
+        (test_gui if sys.argv[1:] else test_tile)(work, top, errors)
+    except Exception:
+        errors.append(traceback.format_exc().rstrip())
     if errors:
         for error in errors:
             print("test.py: " + error, file = sys.stderr)
