@@ -22,16 +22,29 @@ available_sources = (
     "View",
     "Viewfinderpanoramas (J. de Ferranti) - mostly worldwide",
     "SRTM",
-    "SRTMv3 (from OpenTopography) - NOW REQUIRES MANUAL DOWNLOAD",
+    "SRTMv3 (from OpenTopography) - worldwide at latitudes < 60",
     "NED1",
     'NED 1" (from USGS) - USA, Canada, Mexico',
     "NED1/3",
     'NED 1/3" (from USGS) - USA',
     "ALOS",
-    "ALOS 3W30 (from OpenTopography) - NOW REQUIRES MANUAL DOWNLOAD",
+    "ALOS 3W30 average (from OpenTopography) - mostly worldwide",
 )
 
+# Tile configs of version 1.40 name the sources with these labels.
+renamed_sources = {
+    "SRTMv3 (from OpenTopography) - NOW REQUIRES MANUAL DOWNLOAD": (
+        available_sources[3]
+    ),
+    "ALOS 3W30 (from OpenTopography) - NOW REQUIRES MANUAL DOWNLOAD": (
+        available_sources[9]
+    ),
+}
+
 global_sources = ("View", "SRTM", "ALOS")
+
+# The public bucket of OpenTopography, https://opentopography.org/
+opentopography_url = "https://opentopography.s3.sdsc.edu/raster/"
 
 ################################################################################
 class DEM:
@@ -80,6 +93,7 @@ class DEM:
             source, local_sources = source.split(";")[0], source.split(";")[1:]
         else:
             local_sources = None
+        source = renamed_sources.get(source, source)
         if source in available_sources[1::2]:
             short_source = available_sources[
                 available_sources.index(source) - 1
@@ -774,16 +788,29 @@ def ensure_elevation(source, lat, lon, verbose=True):
                         UI.vprint(2, "      Extracting", out_filename)
                         out.write(zip_ref.open(f, "r").read())
     elif source in ("SRTM", "ALOS"):
-        if os.path.exists(FNAMES.elevation_data(source, lat, lon)):
-            UI.vprint(
-                2, "   Recycling ", FNAMES.elevation_data(source, lat, lon)
-            )
+        file_name = FNAMES.elevation_data(source, lat, lon)
+        if os.path.exists(file_name):
+            UI.vprint(2, "   Recycling ", file_name)
             return 1
-        UI.vprint(
-            1,
-            "    WARNING : This elevation source has no longer direct downloads !"
-        )
-        return 0
+        UI.vprint(1, "    Downloading ", file_name, "from OpenTopography.")
+        if source == "SRTM":
+            path = "SRTM_GL1/SRTM_GL1_srtm/" + FNAMES.hem_latlon(lat, lon)
+            path += ".tif"
+        else:
+            path = "AW3D30/AW3D30_global/ALPSMLC30_{}{:03d}{}{:03d}_DSM.tif"
+            path = path.format(
+                "N" if lat >= 0 else "S",
+                abs(lat),
+                "E" if lon >= 0 else "W",
+                abs(lon),
+            )
+        # The bucket answers 404 for a tile of sea, or outside the dataset.
+        r = http_request(opentopography_url + path, source, verbose)
+        if not r:
+            return 0
+        os.makedirs(os.path.dirname(file_name), exist_ok=True)
+        with open(file_name, "wb") as out:
+            out.write(r.content)
     elif source in ("NED1", "NED1/3"):
         if os.path.exists(FNAMES.elevation_data(source, lat, lon)):
             UI.vprint(
