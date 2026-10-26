@@ -15,6 +15,7 @@ import O4_Vector_Map as VMAP
 import O4_Mesh_Utils as MESH
 import O4_Mask_Utils as MASK
 import O4_Tile_Utils as TILE
+import O4_Overlay_Utils as OVL
 import O4_GUI_Utils as GUI
 import O4_UI_Utils as UI
 import O4_Config_Utils as CFG  # CFG imported last because it can modify other modules variables
@@ -40,6 +41,10 @@ if __name__ == '__main__':
             except: 
                 print("Could not create required directory",directory,". Exit.",file=sys.stderr)
                 sys.exit(1)
+    for program in (MESH.Triangle4XP_cmd,MESH.triangle_cmd,MESH.sort_mesh_cmd,IMG.dds_convert_cmd,OVL.dsftool_cmd):
+        if not os.path.isfile(program.strip()):
+            print("Missing",program.strip()+": build the programs with Utils/run/configure.py, build.py, and install.py,",
+                  "as Install_Instructions.txt explains.",file=sys.stderr)
     IMG.initialize_extents_dict()
     IMG.initialize_color_filters_dict()
     IMG.initialize_providers_dict()

@@ -523,6 +523,14 @@ def test_tile(work, top):
     status = run([os.path.join(top, "Utils", sys_dir, "triangle" + exe), "-pAYPQ", poly], work, log, 300)
     if status != 0 or not all(os.path.exists(os.path.join(work, "square.1." + ext)) for ext in ("node", "ele")):
         errors.append("triangle -pAYPQ: exit status " + str(status))
+
+    # Ortho4XP names the programs it misses at startup.
+    triangle = os.path.join(top, "Utils", sys_dir, "triangle" + exe)
+    os.rename(triangle, triangle + ".hidden")
+    r = subprocess.run([sys.executable, "Ortho4XP.py", "1", "2", "3"], cwd = top, env = offline_env(), capture_output = True, text = True)
+    os.rename(triangle + ".hidden", triangle)
+    if r.returncode != 2 or "Missing " + os.path.join(".", "Utils", sys_dir, "triangle" + exe) not in r.stderr:
+        errors.append("Ortho4XP.py without triangle: status " + str(r.returncode) + ", stderr " + repr(r.stderr[-300:]))
     return errors
 
 # moulinette on small meshes.

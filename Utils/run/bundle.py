@@ -195,13 +195,8 @@ if __name__ == "__main__":
     with tarfile.open(tree) as tar:
         tar.extractall(stage, filter = "data")
     os.remove(tree)
-    for dir in ("lin", "mac", "win"):
-        if dir != cfg["dir"]:
-            shutil.rmtree(os.path.join(top, "Utils", dir))
     install.install(configure.build_dir("Release", cfg), os.path.join(top, "Utils"), cfg)
     install_7zip(stage, os.path.join(top, "Utils", cfg["dir"]), cfg["dir"])
-    if cfg["dir"] == "win":
-        os.remove(os.path.join(top, "Utils", "win", "nvcompress", "nvtt.dll"))
 
     with tarfile.open(download(python_url + target["python"], target["sha256"])) as tar:
         tar.extractall(top, filter = "data")

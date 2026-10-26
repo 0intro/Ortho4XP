@@ -16,3 +16,6 @@ Tiles/
 **/*.swp
 .last_gui_params.txt
 Utils/build/
+Utils/lin/
+Utils/mac/
+Utils/win/

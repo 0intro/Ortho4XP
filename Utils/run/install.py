@@ -18,6 +18,7 @@ def install(src, utils_dir, cfg):
         shutil.copy2(os.path.join(src, "freeglut-LICENSE.txt"), dst)
     if cfg["dir"] == "win":
         dst = os.path.join(dst, "nvcompress")
+        os.makedirs(dst, exist_ok = True)
     shutil.copy2(os.path.join(src, "nvcompress" + cfg["suff"]), dst)
     shutil.copy2(os.path.join(src, "nvtt-LICENSE.txt"), dst)
 
