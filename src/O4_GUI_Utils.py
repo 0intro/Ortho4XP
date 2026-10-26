@@ -859,7 +859,7 @@ class Ortho4XP_Custom_ZL(tk.Toplevel):
         tk.Label(
             self.frame_left,
             text="Ctrl+B1 : add texture\nShift+B1: add zone point\n" + \
-                 "Ctrl+B2 : delete zone",
+                 "Ctrl+Right : delete zone",
             bg="light green",
             justify=LEFT,
         ).grid(row=row, column=0, padx=5, pady=20, sticky=N + S + E + W)
