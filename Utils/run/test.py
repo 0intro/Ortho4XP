@@ -185,9 +185,10 @@ if got.shape != (3601, 3601) or got.any():
     sys.exit("plain.tif: read without georeference, want zero altitude")
 """
 
-# serve serves files, a dict of bytes by path, and answers 404 for other
-# paths. It returns the URL of the server, and the paths and the user
-# agents of the requests, which check_agents requires to name Ortho4XP.
+# serve serves files, a dict of bytes by path, whatever the query string,
+# and answers 404 for other paths. It returns the URL of the server, and
+# the paths and the user agents of the requests, which check_agents
+# requires to name Ortho4XP.
 file_server = """
 import http.server
 import threading
@@ -197,13 +198,14 @@ def serve(files):
         def do_GET(self):
             paths.append(self.path)
             agents.add(self.headers.get("User-Agent"))
-            if self.path not in files:
+            body = files.get(self.path.split("?")[0])
+            if body is None:
                 self.send_error(404)
                 return
             self.send_response(200)
-            self.send_header("Content-Length", str(len(files[self.path])))
+            self.send_header("Content-Length", str(len(body)))
             self.end_headers()
-            self.wfile.write(files[self.path])
+            self.wfile.write(body)
         def log_message(self, *args):
             pass
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
@@ -306,9 +308,10 @@ runpy.run_path(sys.argv[0], run_name = "__main__")
 """
 
 # The extent tool in Extents/Test, on the cached OSM data of a square, in
-# EPSG 4326 and 3857. extent runs the tool as its command line would, and
-# bounds reads the mask_bounds of an .ext file.
-extent_code = """
+# EPSG 4326 and 3857, and on a relation from an Overpass server here,
+# whose tags must all reach the cache. extent runs the tool as its command
+# line would, and bounds reads the mask_bounds of an .ext file.
+extent_code = file_server + """
 import bz2
 import os
 import runpy
@@ -352,6 +355,37 @@ extent("Test", "100", "0", "200", "way[name=Test]", "3857")
 (x0, y0) = GEO.transform(4326, 3857, 5.3, 45.3)
 (x1, y1) = GEO.transform(4326, 3857, 5.31, 45.31)
 check("Test_3857", (x0, y0, x1, y1), 2000)
+import O4_OSM_Utils as OSM
+overpass = "\\n".join([
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<osm version="0.6" generator="Overpass API">',
+    '  <node id="11" lat="45.4" lon="5.4"/>',
+    '  <node id="12" lat="45.4" lon="5.41"/>',
+    '  <node id="13" lat="45.41" lon="5.41"/>',
+    '  <node id="14" lat="45.41" lon="5.4"/>',
+    '  <way id="21">',
+    '    <nd ref="11"/>',
+    '    <nd ref="12"/>',
+    '    <nd ref="13"/>',
+    '    <nd ref="14"/>',
+    '    <nd ref="11"/>',
+    '  </way>',
+    '  <relation id="31">',
+    '    <member type="way" ref="21" role="outer"/>',
+    '    <tag k="admin_level" v="8"/>',
+    '    <tag k="name" v="Test"/>',
+    '    <tag k="type" v="boundary"/>',
+    '  </relation>',
+    '</osm>',
+]) + "\\n"
+(url, paths, agents) = serve({"/api/interpreter": overpass.encode()})
+OSM.overpass_servers = {"DE": url + "api/interpreter"}
+extent("Query", "100", "0", "200", "rel[admin_level=8]")
+check("Query", (5.4, 45.4, 5.41, 45.41), 0.02)
+with bz2.open("Query.osm.bz2", "rt", encoding = "utf-8") as f:
+    if 'k="name" v="Test"' not in f.read():
+        sys.exit("Query.osm.bz2: the cache lost the tags of the relation")
+check_agents(agents)
 """
 
 # A Global Scenery DSF in the text form of DSFTool, with the two rasters
