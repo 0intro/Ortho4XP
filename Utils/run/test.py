@@ -1011,7 +1011,7 @@ def test_tile(work, top, errors):
     # Ortho4XP names the programs it misses at startup.
     triangle = os.path.join(top, "Utils", sys_dir, "triangle" + exe)
     os.rename(triangle, triangle + ".hidden")
-    r = subprocess.run([sys.executable, "Ortho4XP.py", "1", "2", "3"], cwd = top, env = offline_env(), capture_output = True, text = True)
+    r = subprocess.run([sys.executable, "Ortho4XP.py", "1", "2", "3"], cwd = top, env = offline_env(), capture_output = True, text = True, timeout = 300)
     os.rename(triangle + ".hidden", triangle)
     if r.returncode != 2 or "Missing " + os.path.join(".", "Utils", sys_dir, "triangle" + exe) not in r.stderr:
         errors.append("Ortho4XP.py without triangle: status " + str(r.returncode) + ", stderr " + repr(r.stderr[-300:]))
@@ -1032,7 +1032,7 @@ def test_moulinette(work, top, log):
     # Every triangle of the tile's mesh lies in one cluster.
     mesh2 = os.path.join(work, "tile.mesh")
     shutil.copy(os.path.join(top, "Tiles", "zOrtho4XP_" + tile, "Data" + tile + ".mesh"), mesh2)
-    r = subprocess.run([moulinette, "14", mesh2], cwd = work, stdout = subprocess.PIPE, text = True)
+    r = subprocess.run([moulinette, "14", mesh2], cwd = work, stdout = subprocess.PIPE, text = True, timeout = 300)
     counted = sum(int(line.split()[1]) for line in r.stdout.splitlines() if line.strip().startswith("Reordering") and "cluster" in line)
     with open(mesh2) as f:
         lines = f.read().splitlines()
@@ -1127,7 +1127,8 @@ def test_gui(work, top, errors):
     return errors
 
 # medit shows a mesh, and runs until stopped. On Windows the kill also
-# loses its buffered output.
+# loses its buffered output. A SIGTERM while freeglut talks to the X server
+# can hang medit, which the timeout catches.
 def test_medit(work, top, log):
     mesh = os.path.join(work, "medit.mesh")
     with open(mesh, "w") as f:
@@ -1137,7 +1138,12 @@ def test_medit(work, top, log):
     time.sleep(5)
     status = medit.poll()
     medit.terminate()
-    out = medit.communicate()[0].decode("utf-8", "replace")
+    try:
+        out = medit.communicate(timeout = 30)[0].decode("utf-8", "replace")
+    except subprocess.TimeoutExpired:
+        medit.kill()
+        medit.communicate()
+        return ["medit: still running 30 s after SIGTERM"]
     with open(log, "a", encoding = "utf-8") as f:
         f.write(out)
     if status is not None:
