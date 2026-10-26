@@ -90,10 +90,11 @@ jobs:
           name: bundles
       - name: Unpack
         run: tar -xzf Ortho4XP-*-linux-x86_64.tar.gz
-      - name: Install OpenGL for medit
+      - name: Install OpenGL for medit, and a German locale
         run: |
           sudo apt-get update -q
           sudo apt-get install -y libgl1 libglu1-mesa libgl1-mesa-dri
+          sudo locale-gen de_DE.UTF-8
       - name: Test
         run: Ortho4XP/python/bin/python3 Ortho4XP/Utils/run/test.py
       - name: Test the GUI
@@ -109,13 +110,13 @@ jobs:
     container: fedora:latest
     timeout-minutes: 30
     steps:
-      - name: Install Python, Xvfb, and the build tools
+      - name: Install Python, Xvfb, the build tools, and a German locale
         run: >
           dnf -y install git python3.15 python3.15-tkinter 7zip
           xorg-x11-server-Xvfb xorg-x11-xauth dejavu-sans-fonts
           cmake make gcc gcc-c++ glibc-static libstdc++-static zlib-devel
           mesa-libGL-devel mesa-libGLU-devel libX11-devel libXi-devel
-          libXrandr-devel mesa-dri-drivers
+          libXrandr-devel mesa-dri-drivers glibc-langpack-de
       - uses: actions/checkout@v7
       - name: Build the programs
         run: |

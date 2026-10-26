@@ -275,6 +275,25 @@ with open(mesh, "rb") as f:
 check_agents(agents)
 """
 
+# Runs the script named by its first argument, with the rest as arguments,
+# under a German locale, which groups the thousands of {:n} with periods.
+# The first locale that this system has wins. Tcl sets the numeric locale
+# to C when tkinter loads, so tkinter loads first.
+german_code = """
+import locale
+import runpy
+import sys
+import tkinter
+for name in ("de_DE.UTF-8", "German_Germany.1252"):
+    try:
+        print("locale", locale.setlocale(locale.LC_ALL, name), flush = True)
+        break
+    except locale.Error:
+        pass
+sys.argv = sys.argv[1:]
+runpy.run_path(sys.argv[0], run_name = "__main__")
+"""
+
 # A Global Scenery DSF in the text form of DSFTool, with the two rasters
 # that Step 3 copies, a beach that overlays leave out by default, a
 # forest, and a road. It goes in a 7z archive, as in X-Plane 12.
@@ -630,7 +649,10 @@ def test_tile(work, top):
         return errors
 
     log = os.path.join(work, "Ortho4XP.log")
-    status = run([sys.executable, "Ortho4XP.py", str(lat), str(lon)], top, log, 1800)
+    german = os.path.join(work, "german.py")
+    with open(german, "w") as f:
+        f.write(german_code)
+    status = run([sys.executable, german, "Ortho4XP.py", str(lat), str(lon)], top, log, 1800)
     server.shutdown()
     if status != 0:
         return ["Ortho4XP.py " + str(lat) + " " + str(lon) + ": exit status " + str(status) + ", see " + log]
@@ -641,6 +663,15 @@ def test_tile(work, top):
         errors.append("Ortho4XP.cfg: no warning for a setting that holds code")
     if "fake headers for provider EVIL not valid" not in out:
         errors.append("EVIL.lay: no warning for headers that hold code")
+    # The mesh reaches the 1200 m top of the hill only when Triangle4XP
+    # reads the size of the DEM right. Its altitudes are in units of 100 km.
+    mesh = os.path.join(build, "Data" + tile + ".mesh")
+    with open(mesh) as f:
+        lines = f.read().split("\n")
+    i = lines.index("Vertices")
+    top_alt = 100000 * max(float(line.split()[2]) for line in lines[i + 2:i + 2 + int(lines[i + 1])])
+    if not 1150 < top_alt < 1201:
+        errors.append(mesh + ": highest vertex at " + str(round(top_alt)) + " m, want the 1200 m of the hill")
     legacy = os.path.join(work, "legacy.cfg")
     with open(legacy, "w") as f:
         for zone in config["zone_list"] + [payload]:
