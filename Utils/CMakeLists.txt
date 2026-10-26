@@ -128,8 +128,11 @@ else()
         # raise the glibc that medit needs (check_elf in bundle.py).
         # Without errno, sqrtf is one instruction.
         set_target_properties(freeglut_static PROPERTIES C_STANDARD 17)
-        target_compile_options(freeglut_static PRIVATE -fno-math-errno
-            "SHELL:-include \"${CMAKE_CURRENT_SOURCE_DIR}/src/glibc-compat.h\"")
+        target_compile_options(freeglut_static PRIVATE -fno-math-errno)
+        if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64)$")
+            target_compile_options(freeglut_static PRIVATE
+                "SHELL:-include \"${CMAKE_CURRENT_SOURCE_DIR}/src/glibc-compat.h\"")
+        endif()
         target_compile_options(medit PRIVATE -fno-math-errno)
         find_package(OpenGL REQUIRED)
         target_link_libraries(medit freeglut_static OpenGL::GLU OpenGL::GL m)
