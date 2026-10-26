@@ -108,18 +108,26 @@ def files(top):
         for name in sorted(names):
             yield os.path.join(dir, name)
 
+def digest(path):
+    with open(path, "rb") as f:
+        return hashlib.file_digest(f, "sha256").hexdigest()
+
+# Downloads url into build/download once, and returns its path. A download
+# joins the cache only when its hash matches, since a connection that drops
+# can end a body early without an error.
 def download(url, sha256):
     path = os.path.join(build_dir, "download", url.rsplit("/", 1)[1])
-    if not os.path.exists(path):
-        os.makedirs(os.path.dirname(path), exist_ok = True)
-        print("Downloading " + url)
-        with urllib.request.urlopen(url) as r, open(path + ".part", "wb") as f:
-            shutil.copyfileobj(r, f)
-        os.replace(path + ".part", path)
-    with open(path, "rb") as f:
-        digest = hashlib.file_digest(f, "sha256").hexdigest()
-    if digest != sha256:
-        sys.exit(path + ": SHA-256 is " + digest + ", want " + sha256)
+    if os.path.exists(path) and digest(path) == sha256:
+        return path
+    os.makedirs(os.path.dirname(path), exist_ok = True)
+    print("Downloading " + url)
+    with urllib.request.urlopen(url, timeout = 60) as r, open(path + ".part", "wb") as f:
+        shutil.copyfileobj(r, f)
+    got = digest(path + ".part")
+    if got != sha256:
+        os.remove(path + ".part")
+        sys.exit(url + ": SHA-256 is " + got + ", want " + sha256)
+    os.replace(path + ".part", path)
     return path
 
 def file_version(path):
