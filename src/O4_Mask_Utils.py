@@ -937,7 +937,7 @@ if __name__ == "__main__":
     if not os.path.exists(cached_file_name):
         print("OSM query...")
         if not OSM.OSM_query_to_OSM_layer(
-            query, "", osm_layer, "all", cached_file_name=cached_file_name
+            query, "", osm_layer, ["all"], cached_file_name=cached_file_name
         ):
             print("OSM query failed. Exiting.")
             del vector_map
