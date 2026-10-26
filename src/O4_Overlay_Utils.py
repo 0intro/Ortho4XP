@@ -141,14 +141,17 @@ def build_overlay(lat, lon):
         ),
     ]
     fingers_crossed = subprocess.Popen(
-        dsfconvertcmd, stdout=subprocess.PIPE, bufsize=0
+        dsfconvertcmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        bufsize=0,
     )
     while True:
         line = fingers_crossed.stdout.readline()
         if not line:
             break
         else:
-            UI.vprint(1, "     " + line.decode("utf-8")[:-1])
+            UI.vprint(1, "     " + line.decode("utf-8", "backslashreplace")[:-1])
     if fingers_crossed.wait():
         UI.exit_message_and_bottom_line("   ERROR: DSFTool crashed.")
         return 0
@@ -241,14 +244,17 @@ def build_overlay(lat, lon):
         ),
     ]
     fingers_crossed = subprocess.Popen(
-        dsfconvertcmd, stdout=subprocess.PIPE, bufsize=0
+        dsfconvertcmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        bufsize=0,
     )
     while True:
         line = fingers_crossed.stdout.readline()
         if not line:
             break
         else:
-            print("     " + line.decode("utf-8")[:-1])
+            print("     " + line.decode("utf-8", "backslashreplace")[:-1])
     if fingers_crossed.wait():
         UI.exit_message_and_bottom_line("   ERROR: DSFTool crashed.")
         return 0
