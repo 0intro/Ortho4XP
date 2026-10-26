@@ -18,7 +18,7 @@ import zipfile
 import configure
 import install
 
-usage = "usage: bundle.py lin|win"
+usage = "usage: bundle.py lin|win|mac-arm64|mac-x86_64"
 
 root_dir = os.path.dirname(configure.utils_dir)
 build_dir = os.path.join(configure.utils_dir, "build")
@@ -45,11 +45,33 @@ targets = {
         "launcher": "Ortho4XP.cmd",
         "archive": "windows-x86_64.zip",
     },
+    # The pyproj wheels need macOS 14 on Apple Silicon and 15 on Intel.
+    "mac-arm64": {
+        "cfg": configure.mac_cfg,
+        "python": "cpython-3.15.1+20261021-aarch64-apple-darwin-install_only_stripped.tar.gz",
+        "sha256": "1a4eb4d5aa82400de6eeb94e6fc6d870f5fabc97eb1d801f7eeba8072117b11c",
+        "site": "python/lib/python3.15/site-packages",
+        "platform": "macosx_14_0_arm64",
+        "launcher": "Ortho4XP",
+        "archive": "macos-arm64.tar.gz",
+        "arch": "arm64",
+    },
+    "mac-x86_64": {
+        "cfg": configure.mac_cfg,
+        "python": "cpython-3.15.1+20261021-x86_64-apple-darwin-install_only_stripped.tar.gz",
+        "sha256": "b7604b6cfcce467baca5bd607c4fc55928be99310b92b4faf2bdb448f488929e",
+        "site": "python/lib/python3.15/site-packages",
+        "platform": "macosx_15_0_x86_64",
+        "launcher": "Ortho4XP",
+        "archive": "macos-x86_64.tar.gz",
+        "arch": "x86_64",
+    },
 }
 
 seven_zip_url = "https://github.com/ip7z/7zip/releases/download/26.05/"
 seven_zip = {
     "lin": ("7z2605-linux-x64.tar.xz", "22cf82fcc6eb7474f1d5bb4f02c0f8ebd573a718089d6833dc30f8350a3b232e"),
+    "mac": ("7z2605-mac.tar.xz", "12ef6830317743cfd3f0ab1724bde43fcc270d8b6d8564f8c12c2a2b7f993570"),
     "win": ("7z2605-x64.exe", "fd99e86f57d8f429ef5ed045bf98315af962e2309b0f1ba87a147a44c71647d0"),
 }
 
@@ -139,18 +161,41 @@ def check_pe(top):
                 errors.append(path + " needs " + dll)
     return errors
 
-# Puts 7-Zip in utils: the static 7zzs as 7zz for Linux, and for Windows
-# 7z.exe with 7z.dll, which 7zzs unpacks from the installer.
+# Puts 7-Zip in utils: the static 7zzs as 7zz for Linux, the universal
+# 7zz for macOS, and for Windows 7z.exe with 7z.dll, which 7zzs unpacks
+# from the installer.
 def install_7zip(stage, utils, system):
-    (name, sha256) = seven_zip["lin"]
+    (name, sha256) = seven_zip["mac" if system == "mac" else "lin"]
+    program = "7zz" if system == "mac" else "7zzs"
     with tarfile.open(download(seven_zip_url + name, sha256)) as tar:
-        tar.extractall(stage, members = [tar.getmember("7zzs"), tar.getmember("License.txt")], filter = "data")
-    if system == "lin":
-        shutil.copy2(os.path.join(stage, "7zzs"), os.path.join(utils, "7zz"))
-    else:
+        tar.extractall(stage, members = [tar.getmember(program), tar.getmember("License.txt")], filter = "data")
+    if system == "win":
         (name, sha256) = seven_zip["win"]
-        configure.run([os.path.join(stage, "7zzs"), "x", "-y", "-bso0", "-o" + utils, download(seven_zip_url + name, sha256), "7z.exe", "7z.dll"])
+        configure.run([os.path.join(stage, program), "x", "-y", "-bso0", "-o" + utils, download(seven_zip_url + name, sha256), "7z.exe", "7z.dll"])
+    else:
+        shutil.copy2(os.path.join(stage, program), os.path.join(utils, "7zz"))
     shutil.copy2(os.path.join(stage, "License.txt"), os.path.join(utils, "7-Zip-License.txt"))
+
+# The programs outside python/ hold arch and link only the libraries and
+# frameworks of macOS.
+def check_macho(top, arch):
+    errors = []
+    for path in files(top):
+        if os.path.relpath(path, top).startswith("python" + os.sep) or os.path.islink(path):
+            continue
+        with open(path, "rb") as f:
+            magic = f.read(4)
+        if magic not in (b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe"):
+            continue
+        archs = subprocess.run(["lipo", "-archs", path], capture_output = True, text = True).stdout.split()
+        if arch not in archs:
+            errors.append(path + " holds " + " ".join(archs) + ", want " + arch)
+        out = subprocess.run(["otool", "-L", "-arch", arch, path], capture_output = True, text = True).stdout
+        for lib in out.splitlines()[1:]:
+            lib = lib.split()[0]
+            if not lib.startswith(("/usr/lib/", "/System/Library/")):
+                errors.append(path + " needs " + lib)
+    return errors
 
 def write_tar(path, top, mtime):
     def reset(info):
@@ -217,7 +262,12 @@ if __name__ == "__main__":
         f.write(launchers[target["launcher"]])
     os.chmod(launcher, 0o755)
 
-    errors = check_pe(top) if cfg["dir"] == "win" else check_elf(top)
+    if cfg["dir"] == "win":
+        errors = check_pe(top)
+    elif cfg["dir"] == "mac":
+        errors = check_macho(top, target["arch"])
+    else:
+        errors = check_elf(top)
     if errors:
         sys.exit("\n".join(errors))
 
