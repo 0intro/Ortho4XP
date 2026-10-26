@@ -364,6 +364,8 @@ for name in ("de_DE.UTF-8", "German_Germany.1252"):
         break
     except locale.Error:
         pass
+else:
+    sys.exit("german.py: no German locale: install glibc-langpack-de on Fedora, or run locale-gen de_DE.UTF-8 on Debian and Ubuntu")
 sys.argv = sys.argv[1:]
 runpy.run_path(sys.argv[0], run_name = "__main__")
 """
