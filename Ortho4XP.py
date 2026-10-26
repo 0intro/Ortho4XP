@@ -41,10 +41,13 @@ if __name__ == '__main__':
             except: 
                 print("Could not create required directory",directory,". Exit.",file=sys.stderr)
                 sys.exit(1)
+    if sys.platform=='win32':
+        hint="copy Utils\\win from the Windows release archive"
+    else:
+        hint="build the programs with Utils/run/configure.py, build.py, and install.py"
     for program in (MESH.Triangle4XP_cmd,MESH.triangle_cmd,MESH.sort_mesh_cmd,IMG.dds_convert_cmd,OVL.dsftool_cmd):
         if not os.path.isfile(program.strip()):
-            print("Missing",program.strip()+": build the programs with Utils/run/configure.py, build.py, and install.py,",
-                  "as Install_Instructions.txt explains.",file=sys.stderr)
+            print("Missing",program.strip()+":",hint+", as Install_Instructions.txt explains.",file=sys.stderr)
     IMG.initialize_extents_dict()
     IMG.initialize_color_filters_dict()
     IMG.initialize_providers_dict()
