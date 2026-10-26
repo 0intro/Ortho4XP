@@ -517,9 +517,14 @@ lines = [
     "POLYGON_DEF lib/g10/forests/test.for",
     "NETWORK_DEF lib/g10/roads.net",
 ]
-for (i, name) in enumerate(("elevation", "bathymetry")):
+n = numpy.arange(101 * 101, dtype = "<i2")
+elevation = n % 300
+# The bathymetry of every other cell lies above the elevation, which
+# Step 3 lowers to 2 m below it.
+bathymetry = elevation - 100 + 150 * (n % 2)
+for (i, (name, alt)) in enumerate((("elevation", elevation), ("bathymetry", bathymetry))):
     raw = os.path.join(gs, name + ".raw")
-    (numpy.arange(101 * 101, dtype = "<i2") % 300 - 100 * i).tofile(raw)
+    alt.astype("<i2").tofile(raw)
     lines.insert(i + 11, "RASTER_DEF " + name)
     lines.append("RASTER_DATA version=1 bpp=2 flags=5 width=101 height=101 scale=1.0 offset=0.0 " + raw)
 for (kind, lon) in ((0, 5.3), (1, 5.5)):
@@ -1006,6 +1011,13 @@ def test_tile(work, top, errors):
         for line in ("PROPERTY sim/west 5", "RASTER_DEF elevation", "RASTER_DEF bathymetry"):
             if line not in out:
                 errors.append(text + ": missing " + line)
+        # DSFTool writes the rasters beside the text, as dsf.txt.<name>.raw.
+        elevation = numpy.fromfile(os.path.join(gs, "elevation.raw"), "<i2")
+        bathymetry = numpy.fromfile(os.path.join(gs, "bathymetry.raw"), "<i2")
+        for (name, want) in (("elevation", elevation), ("bathymetry", numpy.minimum(bathymetry, elevation - 2))):
+            raw = text + "." + name + ".raw"
+            if not os.path.exists(raw) or not numpy.array_equal(numpy.fromfile(raw, "<i2"), want):
+                errors.append(raw + ": differs from the " + name + " of the Global Scenery DSF, as Step 3 makes it")
     errors += check("overlay", overlay_code, [gs], work, top, log)
     errors += check("norasters", no_rasters_code, [os.path.join(work, "Global Scenery 11")], work, top, log)
 
