@@ -4,6 +4,9 @@
  *
  * usage: moulinette zoomlevel sourcefile.mesh [destfile.mesh]
  *
+ * It exits with status 1 when it cannot read or write a mesh, and leaves
+ * the mesh as it was.
+ *
  * Pascal (Scratchfly @x-plane.org) wrote moulinette in C++, and Ortho4XP
  * shipped it as a binary. This file restates his program in C from that
  * binary, for the same use and under the same terms. The algorithm, the
@@ -63,30 +66,28 @@ main(int argc, char *argv[])
 	FILE *f;
 
 	puts("#### Mesh File Optimizer ####");
-	if (argc < 2) {
+	if (argc < 3 || argc > 4) {
 		puts("* Groups triangles per zoomlevel tile and per type.");
 		puts("* Reorders the triangle list so as successive triangles are adjacent if possible.");
 		puts("* Reorders the vertex list to the referring order of the triangle list.");
 		puts("* Removes unreferenced vertices.");
 		puts("Usage: moulinette zoomlevel sourcefile.mesh [destfile.mesh]");
-		return 0;
+		return 2;
 	}
 	srand((unsigned)time(NULL));
 
-	header[0] = '\0';
 	nv = nn = nt = 0;
 	vert = norm = NULL;
-	tri = newtri = NULL;
-	outvert = NULL;
-	f = argc > 2 ? fopen(argv[2], "r") : NULL;
+	tri = NULL;
+	f = fopen(argv[2], "r");
 	if (f == NULL) {
 		puts("  Error: Unable to read mesh file.");
-		goto Notriangles;
+		return 1;
 	}
 	printf("  Reading mesh file %s ...\n", argv[2]);
 	if (fgets(header, sizeof header, f) == NULL) {
 		puts("  Error: Mesh file is empty.");
-		return 0;
+		return 1;
 	}
 	state = 0;
 	iv = in = it = 0;
@@ -169,10 +170,12 @@ main(int argc, char *argv[])
 	fclose(f);
 	printf("    Read %d vertices, %d normals, %d triangles.\n", nv, nn, nt);
 	if (tri == NULL) {
-	Notriangles:
 		puts("  Error: Unable to process triangles.");
-		outvert = vert;
-		goto Write;
+		return 1;
+	}
+	if (vert == NULL) {
+		puts("  Error: Unable to process vertices.");
+		return 1;
 	}
 
 	newtri = emalloc((size_t)nt * 4 * sizeof newtri[0]);
@@ -426,10 +429,6 @@ main(int argc, char *argv[])
 	printf("  Average chain length: %d, strip length: %d.\n",
 		(int)((double)nt / chains + 0.5), (int)((double)nt / strips + 0.5));
 
-	if (vert == NULL) {
-		puts("  Error: Unable to process vertices.");
-		goto Write;
-	}
 	if (norm == NULL) {
 		newvert = voidlines(nv);
 		newnorm = NULL;
@@ -473,33 +472,32 @@ main(int argc, char *argv[])
 
 Write:
 	dst = argc < 4 ? argv[2] : argv[3];
-	f = dst != NULL ? fopen(dst, "w") : NULL;
+	f = fopen(dst, "w");
 	if (f == NULL) {
 		puts("  Error: Unable to write mesh file.");
-		goto Out;
+		return 1;
 	}
 	printf("  Writing mesh file %s ...\n", dst);
 	fputs(header, f);
 	fputs("Dimension 3\n", f);
-	if (outvert != NULL) {
-		fprintf(f, "\nVertices\n%d\n", nv);
-		for (i = 0; i < nv; i++)
-			fputs(outvert + (size_t)i*Linelen, f);
-	}
+	fprintf(f, "\nVertices\n%d\n", nv);
+	for (i = 0; i < nv; i++)
+		fputs(outvert + (size_t)i*Linelen, f);
 	if (norm != NULL) {
 		fprintf(f, "\nNormals\n%d\n", nn);
 		for (i = 0; i < nn; i++)
 			fputs(norm + (size_t)i*Linelen, f);
 	}
-	if (newtri != NULL) {
-		fprintf(f, "\nTriangles\n%d\n", nt);
-		for (i = 0; i < nt; i++)
-			fprintf(f, "%d %d %d %d\n", newtri[4*i] + 1, newtri[4*i + 1] + 1,
-				newtri[4*i + 2] + 1, newtri[4*i + 3]);
+	fprintf(f, "\nTriangles\n%d\n", nt);
+	for (i = 0; i < nt; i++)
+		fprintf(f, "%d %d %d %d\n", newtri[4*i] + 1, newtri[4*i + 1] + 1,
+			newtri[4*i + 2] + 1, newtri[4*i + 3]);
+	n = ferror(f);
+	if (fclose(f) != 0 || n != 0) {
+		puts("  Error: Unable to write mesh file.");
+		return 1;
 	}
-	fclose(f);
 	printf("    Write %d vertices, %d normals, %d triangles.\n", nv, nn, nt);
-Out:
 	free(newtri);
 	free(outvert);
 	free(norm);

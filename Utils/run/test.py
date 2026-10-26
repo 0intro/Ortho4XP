@@ -534,9 +534,25 @@ def test_moulinette(work, top, log):
     status = run([moulinette, "0", mesh], work, log, 60)
     with open(mesh) as f:
         header = f.readline()
+    errors = []
     if status != 0 or header != small_mesh.splitlines(True)[0]:
-        return ["moulinette: header " + repr(header) + ", status " + str(status)]
-    return []
+        errors.append("moulinette: header " + repr(header) + ", status " + str(status))
+    # Failures leave the mesh as it was and exit with status 1.
+    missing = os.path.join(work, "missing.mesh")
+    status = run([moulinette, "0", missing], work, log, 60)
+    if status != 1 or os.path.exists(missing):
+        errors.append("moulinette on a missing mesh: status " + str(status) + ", want 1 and no file")
+    broken = small_mesh[:small_mesh.index("Triangles")]
+    with open(mesh, "w") as f:
+        f.write(broken)
+    status = run([moulinette, "0", mesh], work, log, 60)
+    with open(mesh) as f:
+        if status != 1 or f.read() != broken:
+            errors.append("moulinette on a mesh without triangles: status " + str(status) + ", want 1 and the mesh as it was")
+    status = run([moulinette, "0"], work, log, 60)
+    if status != 2:
+        errors.append("moulinette without a mesh: status " + str(status) + ", want 2")
+    return errors
 
 def test_gui(work, top):
     import tkinter
