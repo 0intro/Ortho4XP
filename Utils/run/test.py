@@ -309,14 +309,16 @@ runpy.run_path(sys.argv[0], run_name = "__main__")
 
 # The extent tool in Extents/Test, on the cached OSM data of a square, in
 # EPSG 4326 and 3857, and on a relation from an Overpass server here,
-# whose tags must all reach the cache. extent runs the tool as its command
-# line would, and bounds reads the mask_bounds of an .ext file.
+# whose tags must all reach the cache, then with a grid argument, and with
+# one that holds code, which the tool must refuse. extent runs the tool as
+# its command line would, and bounds reads the mask_bounds of an .ext file.
 extent_code = file_server + """
 import bz2
 import os
 import runpy
 from PIL import Image
 import O4_Geo_Utils as GEO
+payload = sys.argv[1]
 os.makedirs(os.path.join("Extents", "Test"))
 os.chdir(os.path.join("Extents", "Test"))
 tool = os.path.join("..", "..", "src", "O4_Mask_Utils.py")
@@ -386,6 +388,11 @@ with bz2.open("Query.osm.bz2", "rt", encoding = "utf-8") as f:
     if 'k="name" v="Test"' not in f.read():
         sys.exit("Query.osm.bz2: the cache lost the tags of the relation")
 check_agents(agents)
+extent("Query", "100", "0", "200", "rel[admin_level=8]", "4326", "0.05")
+check("Query", (5.4, 45.4, 5.41, 45.41), 0.05)
+status = extent("Query", "100", "0", "200", "rel[admin_level=8]", "4326", payload)
+if status != 1 or os.path.exists("pwned"):
+    sys.exit("a grid argument that holds code: exit status " + str(status) + ", want 1 and no code run")
 """
 
 # A Global Scenery DSF in the text form of DSFTool, with the two rasters
@@ -795,7 +802,7 @@ def test_tile(work, top):
     errors += check("geotiff", geotiff_code, [os.path.join(top, config["custom_dem"])], work, top, log)
     errors += check("opentopography", opentopography_code, [], work, top, log)
     errors += check("community", community_code, [], work, top, log)
-    errors += check("extent", extent_code, [], work, top, log)
+    errors += check("extent", extent_code, [payload], work, top, log)
     if os.path.exists(os.path.join(top, "pwned")):
         errors.append("a config or provider file ran code")
     textures = sorted(glob.glob(os.path.join(build, "textures", "*.dds")))

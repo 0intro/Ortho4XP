@@ -1,3 +1,4 @@
+import ast
 import os
 import sys
 import time
@@ -923,7 +924,13 @@ if __name__ == "__main__":
     else:
         epsg_code = "4326"
     if nargs == 8:
-        grid_size_or_bbox = eval(sys.argv[7])
+        try:
+            grid_size_or_bbox = ast.literal_eval(sys.argv[7])
+        except (SyntaxError, ValueError):
+            grid_size_or_bbox = None
+        if not isinstance(grid_size_or_bbox, (int, float, tuple)):
+            print(Syntax)
+            sys.exit(1)
     else:
         grid_size_or_bbox = 0.02 if epsg_code == "4326" else 2000
     pixel_size = float(sys.argv[2])
