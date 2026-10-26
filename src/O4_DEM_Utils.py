@@ -190,37 +190,6 @@ class DEM:
         self.alt_dem.astype(numpy.float32).tofile(filename)
         return
 
-    def create_normal_map(self, pixx, pixy):
-        dx = numpy.zeros((self.nxdem, self.nydem))
-        dy = numpy.zeros((self.nxdem, self.nydem))
-        dx[:, 1:-1] = (self.alt_dem[:, 2:] - self.alt_dem[:, 0:-2]) / (2 * pixx)
-        dx[:, 0] = (self.alt_dem[:, 1] - self.alt_dem[:, 0]) / (pixx)
-        dx[:, -1] = (self.alt_dem[:, -1] - self.alt_dem[:, -2]) / (pixx)
-        dy[1:-1, :] = (self.alt_dem[:-2, :] - self.alt_dem[2:, :]) / (2 * pixy)
-        dy[0, :] = (self.alt_dem[0, :] - self.alt_dem[1, :]) / (pixy)
-        dy[-1, :] = (self.alt_dem[-2, :] - self.alt_dem[-1, :]) / (pixy)
-        del self.alt_dem
-        norm = numpy.sqrt(1 + dx ** 2 + dy ** 2)
-        dx = dx / norm
-        dy = dy / norm
-        del norm
-        band_r = Image.fromarray(
-            ((1 + dx) / 2 * 255).astype(numpy.uint8)
-        ).resize((4096, 4096))
-        del dx
-        band_g = Image.fromarray(
-            ((1 - dy) / 2 * 255).astype(numpy.uint8)
-        ).resize((4096, 4096))
-        del dy
-        band_b = Image.fromarray(
-            (numpy.ones((4096, 4096)) * 10).astype(numpy.uint8)
-        )
-        band_a = Image.fromarray(
-            (numpy.ones((4096, 4096)) * 128).astype(numpy.uint8)
-        )
-        im = Image.merge("RGBA", (band_r, band_g, band_b, band_a))
-        im.save("normal_map.png")
-
     def super_level_set(self, level, wgs84_bbox):
         (lonmin, lonmax, latmin, latmax) = wgs84_bbox
         xmin = lonmin - self.lon

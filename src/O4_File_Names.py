@@ -112,22 +112,6 @@ def input_poly_file(tile):
         )
 
 
-def input_ele_file(tile):
-    if tile.iterate:
-        return os.path.join(
-            tile.build_dir,
-            "Data"
-            + short_latlon(tile.lat, tile.lon)
-            + "."
-            + str(tile.iterate)
-            + ".ele",
-        )
-    else:
-        return os.path.join(
-            tile.build_dir, "Data" + short_latlon(tile.lat, tile.lon) + ".ele"
-        )
-
-
 def output_node_file(tile):
     return os.path.join(
         tile.build_dir,
@@ -136,17 +120,6 @@ def output_node_file(tile):
         + "."
         + str(tile.iterate + 1)
         + ".node",
-    )
-
-
-def output_poly_file(tile):
-    return os.path.join(
-        tile.build_dir,
-        "Data"
-        + short_latlon(tile.lat, tile.lon)
-        + "."
-        + str(tile.iterate + 1)
-        + ".poly",
     )
 
 
@@ -191,12 +164,6 @@ def weight_file(tile):
 
 def mesh_file(build_dir, lat, lon):
     return os.path.join(build_dir, "Data" + short_latlon(lat, lon) + ".mesh")
-
-
-def dsf_file(build_dir, lat, lon):
-    return os.path.join(
-        build_dir, "Earth nav data", long_latlon(lat, lon) + ".dsf"
-    )
 
 
 def obj_file(til_x_left, til_y_top, zoomlevel, provider_code):
@@ -324,13 +291,6 @@ def generic_tif(lat, lon):
 ##############################################################################
 def viewfinderpanorama(lat, lon):
     return base_file_name(lat, lon) + ".hgt"
-
-
-##############################################################################
-
-##############################################################################
-def SRTM_1sec(lat, lon):
-    return base_file_name(lat, lon) + "_SRTM_1sec.hgt"
 
 
 ##############################################################################
