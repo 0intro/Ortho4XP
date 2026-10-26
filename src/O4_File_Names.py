@@ -300,7 +300,12 @@ def elevation_data(source, lat, lon):
     if source == "View":
         return base_file_name(lat, lon) + ".hgt"
     elif source == "SRTM":
-        return base_file_name(lat, lon) + "_SRTMv3.hgt"
+        # An SRTM tile placed here by hand as .hgt goes before the GeoTIFF
+        # that Ortho4XP downloads.
+        hgt = base_file_name(lat, lon) + "_SRTMv3.hgt"
+        if os.path.exists(hgt):
+            return hgt
+        return base_file_name(lat, lon) + "_SRTMv3.tif"
     elif source == "ALOS":
         return base_file_name(lat, lon) + "_ALOS3W30.tif"
     elif source == "NED1/3":

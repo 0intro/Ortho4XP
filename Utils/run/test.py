@@ -111,18 +111,14 @@ if sys.platform == "win32" and cmd == OVL.seven_zip_bundled and os.path.isfile(i
         sys.exit("7-Zip: found " + str(found) + " without Utils, want " + installed)
 """
 
-# GeoTIFF elevation, which Pillow reads when GDAL is missing: the test DEM
-# as SRTM ships its tiles (int16, Deflate, the corner pixels centered on
-# the tile corners), and as ALOS does (LZW, pixels tiling the tile, here in
-# float32), each with nodata in its northwest corner. A TIFF without
-# georeference reads as zero altitude.
-geotiff_code = """
+# write_geotiff writes alt, rows from north to south, as a GeoTIFF of the
+# tile: the corner pixels centered on the tile corners when point is true,
+# as in SRTM, and pixels tiling the tile otherwise, as in ALOS.
+geotiff_writer = """
 import numpy
 from PIL import Image, TiffImagePlugin, TiffTags
-import O4_DEM_Utils as DEM
-DEM.has_gdal = False
 (lat, lon) = (45, 5)
-def write(path, alt, point, nodata, compression):
+def write_geotiff(path, alt, point, nodata, compression):
     step = 1 / (alt.shape[0] - 1 if point else alt.shape[0])
     raster_type = 2 if point else 1
     tags = {
@@ -140,6 +136,15 @@ def write(path, alt, point, nodata, compression):
         alt = alt.view(numpy.uint16)
         ifd[339] = 2
     Image.fromarray(alt).save(path, tiffinfo = ifd, compression = compression)
+"""
+
+# GeoTIFF elevation, which Pillow reads when GDAL is missing: the test DEM
+# as SRTM ships its tiles (int16, Deflate), and as ALOS does (LZW, here in
+# float32), each with nodata in its northwest corner. A TIFF without
+# georeference reads as zero altitude.
+geotiff_code = geotiff_writer + """
+import O4_DEM_Utils as DEM
+DEM.has_gdal = False
 srtm = numpy.fromfile(sys.argv[1], ">i2").reshape(1201, 1201).astype(numpy.int16)
 srtm[:10, :10] = -32768
 alos = srtm[:1200, :1200].astype(numpy.float32) + 0.25
@@ -150,7 +155,7 @@ cases = [
     ("alos.tif", alos, False, -9999, "tiff_lzw", (e, e, 1 - e, 1 - e)),
 ]
 for (path, alt, point, nodata, compression, corners) in cases:
-    write(path, alt, point, nodata, compression)
+    write_geotiff(path, alt, point, nodata, compression)
     want = alt.astype(numpy.float32)
     want[want == nodata] = -32768
     for info_only in (True, False):
@@ -165,6 +170,67 @@ Image.fromarray(alos).save("plain.tif")
 got = DEM.read_elevation_from_file("plain.tif", lat, lon)[-1]
 if got.shape != (3601, 3601) or got.any():
     sys.exit("plain.tif: read without georeference, want zero altitude")
+"""
+
+# SRTM and ALOS tiles as OpenTopography serves them, served here: the DEM
+# of the tile holds the served tile, a neighbor of sea (404) reads as zero
+# altitude, a downloaded tile serves again from Elevation_data, and an
+# SRTM .hgt placed by hand goes before the download. The labels of 1.40
+# name the sources too.
+opentopography_code = geotiff_writer + """
+import http.server
+import os
+import threading
+import O4_DEM_Utils as DEM
+import O4_File_Names as FNAMES
+n = numpy.arange(3601, dtype = numpy.int16)
+srtm = numpy.add.outer(n, 2 * n)
+alos = numpy.add.outer(3 * n[:3600], n[:3600])
+srtm_path = "/SRTM_GL1/SRTM_GL1_srtm/N45E005.tif"
+alos_path = "/AW3D30/AW3D30_global/ALPSMLC30_N045E005_DSM.tif"
+served = {}
+for (path, alt, point, compression) in ((srtm_path, srtm, True, "tiff_deflate"), (alos_path, alos, False, "tiff_lzw")):
+    name = os.path.basename(path)
+    write_geotiff(name, alt, point, -32768, compression)
+    with open(name, "rb") as f:
+        served[path] = f.read()
+paths = []
+class Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        paths.append(self.path)
+        if self.path not in served:
+            self.send_error(404)
+            return
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(served[self.path])))
+        self.end_headers()
+        self.wfile.write(served[self.path])
+    def log_message(self, *args):
+        pass
+server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+threading.Thread(target = server.serve_forever, daemon = True).start()
+DEM.opentopography_url = "http://127.0.0.1:" + str(server.server_port) + "/"
+hgt = FNAMES.base_file_name(lat - 1, lon) + "_SRTMv3.hgt"
+os.makedirs(os.path.dirname(hgt), exist_ok = True)
+numpy.full((3601, 3601), 7, ">i2").tofile(hgt)
+sources = [
+    (DEM.available_sources[3], srtm),
+    ("SRTMv3 (from OpenTopography) - NOW REQUIRES MANUAL DOWNLOAD", srtm),
+    ("ALOS 3W30 (from OpenTopography) - NOW REQUIRES MANUAL DOWNLOAD", alos),
+]
+for (label, want) in sources:
+    alt = DEM.DEM(lat, lon, label).alt_dem
+    if not numpy.array_equal(alt[36:-36, 36:-36], want):
+        sys.exit(label + ": the tile differs from the served one")
+    if alt[:36, 36:-36].any():
+        sys.exit(label + ": the tile north (404) holds altitude, want zero")
+    if want is srtm and (alt[-36:, 36:-36] != 7).any():
+        sys.exit(label + ": the tile south lost the altitude of its .hgt")
+for path in (srtm_path, alos_path):
+    if paths.count(path) != 1:
+        sys.exit(path + ": " + str(paths.count(path)) + " requests, want 1")
+if any("N44E005" in path for path in paths):
+    sys.exit("requested the tile south, which has an .hgt")
 """
 
 # A Global Scenery DSF in the text form of DSFTool, with the two rasters
@@ -539,6 +605,7 @@ def test_tile(work, top):
     errors += check("legacy", legacy_code, [legacy, repr(config["zone_list"])], work, top, log)
     errors += check("7z", seven_zip_code, [], work, top, log)
     errors += check("geotiff", geotiff_code, [os.path.join(top, config["custom_dem"])], work, top, log)
+    errors += check("opentopography", opentopography_code, [], work, top, log)
     if os.path.exists(os.path.join(top, "pwned")):
         errors.append("a config or provider file ran code")
     textures = sorted(glob.glob(os.path.join(build, "textures", "*.dds")))
