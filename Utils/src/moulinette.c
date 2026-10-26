@@ -261,15 +261,16 @@ main(int argc, char *argv[])
 	next = emalloc((size_t)nt * 3 * sizeof next[0]);
 	nout = 0;
 	for (;;) {
-		count = 0;
 		best = 0;
 		for (i = 0; i < nt; i++)
-			if (group[i] <= best) {
-				count++;
+			if (group[i] < best)
 				best = group[i];
-			}
 		if (best >= 0)
 			break;
+		count = 0;
+		for (i = 0; i < nt; i++)
+			if (group[i] == best)
+				count++;
 		printf("    Reordering %d triangles in cluster %d...\n", count, ~best);
 
 		tree = NULL;
