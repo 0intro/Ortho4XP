@@ -1,5 +1,6 @@
-cmake_minimum_required(VERSION 3.14...3.24)
-cmake_policy(VERSION 3.14...3.24)
+# SOURCE_SUBDIR needs 3.18, and C_STANDARD 17 needs 3.21.
+cmake_minimum_required(VERSION 3.21...3.24)
+cmake_policy(VERSION 3.21...3.24)
 
 project(Ortho4XP VERSION 1.4 LANGUAGES C CXX)
 
