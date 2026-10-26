@@ -34,7 +34,8 @@
 
 enum {
 	Linelen = 256,	/* longest line kept, newline included */
-	Maxcount = INT_MAX/4	/* most items in a section, for int indices */
+	Maxcount = INT_MAX/4,	/* most items in a section, for int indices */
+	Maxzl = 30	/* highest zoomlevel whose tile numbers fit in int */
 };
 
 /* M_PI, which strict C lacks */
@@ -68,7 +69,7 @@ main(int argc, char *argv[])
 	char header[Linelen], line[Linelen], word[Linelen];
 	char *vert, *norm, *newvert, *newnorm, *outvert, *dst, *tmp;
 	int *tri, *newtri, *group, *valence, *info, *next, *stack, *pending, *map, *p, *q;
-	double *coord, x, y, z, lat, scale;
+	double *coord, x, y, z, lat, lon, scale;
 	int nv, nn, nt, iv, in, it, state, zl, i, j, k, t, t2, h, a, b, c, d, v, n;
 	int found, tx, ty, xmin, xmax, ymin, ymax, nx, ny, count, best, nout;
 	int nstack, npending, type, s[3], chains, strips, shared;
@@ -249,6 +250,10 @@ main(int argc, char *argv[])
 	/* group[t] < 0 holds -1 or the cluster of t minus the clusters, minus 1 */
 	zl = 0;
 	sscanf(argv[1], "%d", &zl);
+	if (zl > Maxzl) {
+		printf("  Error: Zoomlevel above %d.\n", Maxzl);
+		return 2;
+	}
 	if (zl > 0) {
 		coord = emalloc((size_t)nv * 2 * sizeof coord[0]);
 		for (i = 0; i < nv; i++) {
@@ -269,11 +274,12 @@ main(int argc, char *argv[])
 			if (a < 0 || b < 0 || c < 0 || a >= nv || b >= nv || c >= nv)
 				continue;
 			lat = (coord[2*a + 1] + coord[2*b + 1] + coord[2*c + 1]) / 3.0;
-			if (!(lat > -90.0) || !(lat < 90.0))
+			lon = (coord[2*a] + coord[2*b] + coord[2*c]) / 3.0;
+			if (!(lat > -90.0) || !(lat < 90.0) || !(lon >= -180.0) || !(lon <= 180.0))
 				continue;
 			/* the texture of zoomlevel zl, 16 tiles wide, under the centroid */
 			scale = pow(2.0, zl - 5);
-			tx = (int)(((coord[2*a] + coord[2*b] + coord[2*c]) / 3.0 / 180.0 + 1.0) * scale);
+			tx = (int)((lon / 180.0 + 1.0) * scale);
 			ty = (int)(scale * (1.0 - log(tan((90.0 + lat) * (Pi / 360))) / Pi));
 			if (!found) {
 				xmin = xmax = tx;
@@ -296,6 +302,10 @@ main(int argc, char *argv[])
 		if (found) {
 			nx = xmax + 1 - xmin;
 			ny = ymax + 1 - ymin;
+			if ((long long)nx * ny > INT_MAX) {
+				puts("  Error: Too many clusters.");
+				return 1;
+			}
 			n = nx * ny;
 			printf("  Found %d x %d = %d clusters for level %d.\n", nx, ny, n, zl);
 			for (t = 0; t < nt; t++)

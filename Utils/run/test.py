@@ -661,6 +661,26 @@ Triangles
 2 4 3 1
 """
 
+# A mesh with a vertex far outside the earth, whose triangle moulinette
+# keeps out of the clusters.
+far_mesh = """MeshVersionFormatted 2
+Dimension 3
+
+Vertices
+5
+5.1 45.1 0.001 0
+5.2 45.1 0.002 0
+5.1 45.2 0.003 0
+5.2 45.2 0.004 0
+1e30 45.1 0 0
+
+Triangles
+3
+1 2 3 1
+2 4 3 1
+5 4 2 1
+"""
+
 # The GUI, driven in-process.
 gui_code = """
 import os
@@ -1021,6 +1041,18 @@ def test_moulinette(work, top, log):
         with open(mesh) as f:
             if status != 1 or f.read() != text:
                 errors.append("moulinette on a mesh with " + what + ": status " + str(status) + ", want 1 and the mesh as it was")
+    with open(mesh, "w") as f:
+        f.write(far_mesh)
+    status = run([moulinette, "16", mesh], work, log, 60)
+    with open(mesh) as f:
+        lines = f.read().splitlines()
+    i = lines.index("Triangles")
+    corners = [int(x) for line in lines[i + 2:] for x in line.split()[:3]]
+    if status != 0 or len(corners) != 9 or not all(1 <= x <= 5 for x in corners):
+        errors.append("moulinette on a vertex at longitude 1e30: status " + str(status) + ", triangles " + repr(lines[i + 2:]))
+    status = run([moulinette, "31", mesh], work, log, 60)
+    if status != 2:
+        errors.append("moulinette at zoomlevel 31: status " + str(status) + ", want 2")
     # A write that fails, here past the size that RLIMIT_FSIZE allows.
     if os.name != "nt":
         import resource
