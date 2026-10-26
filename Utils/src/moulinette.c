@@ -361,7 +361,11 @@ main(int argc, char *argv[])
 			}
 		}
 
-		/* half-edges to cross: stack for the same type, pending for others */
+		/*
+		 * half-edges to cross: stack for the same type, pending for others.
+		 * In a manifold mesh, a half-edge has at most one opposite, so each
+		 * holds at most 3 per triangle.
+		 */
 		stack = emalloc((size_t)nt * 3 * sizeof stack[0]);
 		pending = emalloc((size_t)nt * 3 * sizeof pending[0]);
 		nstack = npending = 0;
@@ -444,6 +448,10 @@ main(int argc, char *argv[])
 					k = h - 3*t2;
 					if (tri[4*t2 + (k + 2)%3] != a || tri[4*t2 + (k + 1)%3] != b)
 						continue;
+					if (nstack == 3*nt || npending == 3*nt) {
+						puts("  Error: Too many triangles share an edge.");
+						return 1;
+					}
 					if (tri[4*t2 + 3] == p[3])
 						stack[nstack++] = h;
 					else

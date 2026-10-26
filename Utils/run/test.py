@@ -1012,6 +1012,7 @@ def test_moulinette(work, top, log):
         ("a line of 300 bytes", small_mesh.replace("5.2 45.1 0.002 0", "5.2 45.1 0.002 0" + " " * 300)),
         ("a triangle on a missing vertex", small_mesh.replace("2 4 3 1\n", "2 5 3 1\n")),
         ("a vertex count beyond int", small_mesh.replace("Vertices\n4\n", "Vertices\n2147483647\n")),
+        ("100 triangles on one edge", small_mesh.replace("Triangles\n2\n1 2 3 1\n2 4 3 1\n", "Triangles\n100\n" + "1 2 3 1\n1 3 2 1\n" * 50)),
     ]
     for (what, text) in bad:
         with open(mesh, "w") as f:
