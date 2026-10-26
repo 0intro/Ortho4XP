@@ -659,13 +659,16 @@ def include_patches(vector_map, tile):
         UI.vprint(1, "   Patching", pfile_name)
         patch_layer = OSM.OSM_layer()
         try:
-            patch_layer.update_dicosm(
+            read = patch_layer.update_dicosm(
                 os.path.join(patch_dir, pfile_name),
                 input_tags=None,
                 target_tags=None,
             )
         except:
+            read = 0
+        if not read:
             UI.vprint(1, "     Error in treating", pfile_name, ", skipped.")
+            continue
         patches_list.append(pfile_name[:-10])
         dw = patch_layer.dicosmw
         dn = patch_layer.dicosmn

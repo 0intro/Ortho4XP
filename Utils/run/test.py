@@ -551,7 +551,7 @@ def write_osm(path, ways):
         for (k, v) in tags.items():
             body.append('    <tag k="' + k + '" v="' + v + '"/>')
         body.append("  </way>")
-    with bz2.open(path, "wt", encoding = "utf-8") as f:
+    with (bz2.open if path.endswith(".bz2") else open)(path, "wt", encoding = "utf-8") as f:
         f.write('<?xml version="1.0" encoding="UTF-8"?>\n<osm version="0.6" generator="Ortho4XP">\n')
         f.write("\n".join(head + body) + "\n</osm>\n")
 
@@ -624,6 +624,11 @@ def test_tile(work, top):
     os.makedirs(osm_dir)
     for (suffix, ways) in osm.items():
         write_osm(os.path.join(osm_dir, tile + "_" + suffix + ".osm.bz2"), ways)
+    patch_dir = os.path.join(top, "Patches", "+40+000", tile)
+    os.makedirs(patch_dir)
+    # A patch of the airport cut short, as a failed download leaves it.
+    with open(os.path.join(patch_dir, "LFZZ.patch.osm"), "w") as f:
+        f.write('<?xml version="1.0" encoding="UTF-8"?>\n<osm version="0.6">\n  <node id="1" lat="45.75" lon="5.25"/>\n')
     os.makedirs(os.path.join(top, "Providers", "Test"))
     for (code, headers) in (("TEST", "fake_headers={'User-Agent': user_agent_ortho4xp}\n"), ("TEST2", "")):
         with open(os.path.join(top, "Providers", "Test", code + ".lay"), "w") as f:
@@ -663,6 +668,8 @@ def test_tile(work, top):
         errors.append("Ortho4XP.cfg: no warning for a setting that holds code")
     if "fake headers for provider EVIL not valid" not in out:
         errors.append("EVIL.lay: no warning for headers that hold code")
+    if "Error in treating LFZZ.patch.osm" not in out or "Auto-patched 1 runway" not in out:
+        errors.append("LFZZ.patch.osm: a truncated patch took the place of the runway of the airport")
     # The mesh reaches the 1200 m top of the hill only when Triangle4XP
     # reads the size of the DEM right. Its altitudes are in units of 100 km.
     mesh = os.path.join(build, "Data" + tile + ".mesh")
