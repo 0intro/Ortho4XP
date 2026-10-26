@@ -962,6 +962,16 @@ def test_tile(work, top, errors):
         errors.append("textures: formats " + str(sorted(formats)) + ", want DXT1 and DXT5")
     if len(paths) != 256 * len(textures) or len(set(paths)) != len(paths):
         errors.append("server: " + str(len(paths)) + " requests (" + str(len(set(paths))) + " distinct) for " + str(len(textures)) + " textures, want 256 each")
+    # The texture Y_X_<provider><zl>.dds holds the 16 x 16 tiles of zl from
+    # tile X, Y on, which the server sees as /zl/x/y.jpg.
+    want = set()
+    for path in textures:
+        (y, x, rest) = os.path.basename(path).split("_", 2)
+        zl = int(rest[-6:-4])
+        want |= {(zl, int(x) + i, int(y) + j) for i in range(16) for j in range(16)}
+    got = {tuple(int(n) for n in path[1:-4].split("/")) for path in paths}
+    if got != want:
+        errors.append("server: " + str(len(got - want)) + " tiles requested out of the textures, " + str(len(want - got)) + " missing, such as " + str(sorted(got ^ want)[:3]))
     if any(not str(agent).startswith("Ortho4XP/") for agent in agents):
         errors.append("server: user agents " + str(sorted(map(str, agents))) + ", want Ortho4XP/")
     for path in formats.get("DXT1", [])[:1]:
