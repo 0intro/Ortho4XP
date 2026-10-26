@@ -1,4 +1,5 @@
 import json
+import os
 from math import floor, ceil, pi, cos, sin
 import numpy
 from shapely import geometry, affinity, ops
@@ -843,6 +844,10 @@ def update_airport_boundaries(tile, dico_airports):
             "WARNING: Could not save airport info to file",
             FNAMES.apt_file(tile),
         )
+    try:
+        os.remove(FNAMES.legacy_apt_file(tile))
+    except OSError:
+        pass
     return
 
 
@@ -853,6 +858,16 @@ def read_airport_bounds(tile):
         with open(FNAMES.apt_file(tile), encoding="utf-8") as f:
             return [(apt["key_type"], apt["bounds"]) for apt in json.load(f)]
     except (OSError, ValueError, KeyError, TypeError):
+        pass
+    if os.path.exists(FNAMES.legacy_apt_file(tile)):
+        UI.vprint(
+            1,
+            "   WARNING: File",
+            FNAMES.legacy_apt_file(tile),
+            "holds the airports as Ortho4XP 1.40 saved them.",
+            "Run Step 1 again to check airport info for upgraded zoomlevel.",
+        )
+    else:
         UI.vprint(
             1,
             "   WARNING: File",
@@ -860,7 +875,7 @@ def read_airport_bounds(tile):
             "is missing (erased after Step 1?), cannot check airport info ",
             "for upgraded zoomlevel.",
         )
-        return []
+    return []
 
 ################################################################################
 def list_airports_and_runways(dico_airports):

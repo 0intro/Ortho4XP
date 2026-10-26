@@ -450,6 +450,27 @@ if status != 1 or os.path.exists("pwned"):
     sys.exit("a grid argument that holds code: exit status " + str(status) + ", want 1 and no code run")
 """
 
+# The airports of a tile that 1.40 built, pickled in Data+45+005.apt, which
+# Steps 2 and 3 ask to build again with Step 1.
+apt_code = """
+import contextlib
+import io
+import os
+import O4_Airport_Utils as APT
+import O4_Config_Utils as CFG
+import O4_File_Names as FNAMES
+tile = CFG.Tile(45, 5, "")
+os.replace(FNAMES.apt_file(tile), "apt.json")
+open(FNAMES.legacy_apt_file(tile), "wb").close()
+out = io.StringIO()
+with contextlib.redirect_stdout(out):
+    got = APT.read_airport_bounds(tile)
+os.remove(FNAMES.legacy_apt_file(tile))
+os.replace("apt.json", FNAMES.apt_file(tile))
+if got or "Run Step 1 again" not in out.getvalue():
+    sys.exit("airports of 1.40: " + repr(got) + ", " + repr(out.getvalue()) + ", want none and a request for Step 1")
+"""
+
 # Links a tile into Custom Scenery as the GUI does, through paths that sh
 # or cmd would read as commands, quoted or not.
 link_code = """
@@ -820,6 +841,9 @@ def test_tile(work, top):
     with open(os.path.join(build, "Ortho4XP_" + tile + ".cfg"), "w") as f:
         for (k, v) in config.items():
             f.write(k + "=" + str(v) + "\n")
+    # The airports as 1.40 pickled them, which Step 1 replaces.
+    legacy_apt = os.path.join(build, "Data" + tile + ".apt")
+    open(legacy_apt, "wb").close()
     gs = os.path.join(work, "Global Scenery")
     with open(os.path.join(top, "Ortho4XP.cfg"), "w", encoding = "cp1252") as f:
         f.write("skip_downloads=" + payload + "\n")
@@ -874,6 +898,7 @@ def test_tile(work, top):
     errors += check("legacy", legacy_code, [legacy, repr(config["zone_list"]), scenery_dir], work, top, log)
     errors += check("7z", seven_zip_code, [], work, top, log)
     errors += check("link", link_code, [], work, top, log)
+    errors += check("apt", apt_code, [], work, top, log)
     errors += check("geotiff", geotiff_code, [os.path.join(top, config["custom_dem"])], work, top, log)
     errors += check("opentopography", opentopography_code, [], work, top, log)
     errors += check("community", community_code, [], work, top, log)
@@ -898,6 +923,8 @@ def test_tile(work, top):
     apt = os.path.join(build, "Data" + tile + ".apt.json")
     if not os.path.exists(apt):
         errors.append(apt + ": missing")
+    if os.path.exists(legacy_apt):
+        errors.append(legacy_apt + ": left after Step 1")
     airport = os.path.join(build, "textures", texture(45.75, 5.25, 15))
     if airport not in textures:
         errors.append(airport + ": missing, Step 3 lost the airport bounds")

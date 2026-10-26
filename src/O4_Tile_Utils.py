@@ -194,10 +194,11 @@ def build_tile(tile):
             os.remove(FNAMES.mesh_file(tile.build_dir, tile.lat, tile.lon))
         except:
             pass
-        try:
-            os.remove(FNAMES.apt_file(tile))
-        except:
-            pass
+        for apt_file in (FNAMES.apt_file(tile), FNAMES.legacy_apt_file(tile)):
+            try:
+                os.remove(apt_file)
+            except:
+                pass
     if UI.cleaning_level > 1 and not tile.grouped:
         remove_unwanted_textures(tile)
     UI.timings_and_bottom_line(timer)
