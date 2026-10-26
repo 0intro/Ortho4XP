@@ -1028,6 +1028,7 @@ def test_moulinette(work, top, log):
         ("a triangle count beyond int", small_mesh.replace("Triangles\n2\n", "Triangles\n4294967298\n"), "too large"),
         ("a negative normal count", small_mesh.replace("Normals\n4\n", "Normals\n-4\n"), "negative count"),
         ("a vertex number beyond int", small_mesh.replace("2 4 3 1\n", "2 4294967300 3 1\n"), "incomplete"),
+        ("100 triangles on one edge", small_mesh.replace("Triangles\n2\n1 2 3 1\n2 4 3 1\n", "Triangles\n100\n" + "1 2 3 1\n1 3 2 1\n" * 50), "share an edge"),
     ]
     for (what, text, message) in bad:
         with open(mesh, "w") as f:
