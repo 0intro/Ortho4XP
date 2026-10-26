@@ -87,7 +87,9 @@ patches = {
 # fields, and require that no file named pwned appears.
 payload = '__import__("pathlib").Path("pwned").touch()'
 
-# A tile config in the form of 1.20, which appends zones one per line.
+# A tile config in the form of 1.20, which appends zones one per line,
+# and the global config, which Python before 3.15 wrote in cp1252 on
+# Windows.
 legacy_code = """
 import ast
 import O4_Config_Utils as CFG
@@ -95,7 +97,11 @@ tile = CFG.Tile(45, 5, "")
 tile.read_from_config(sys.argv[1])
 if tile.zone_list != ast.literal_eval(sys.argv[2]):
     sys.exit("zones " + repr(tile.zone_list) + ", want " + sys.argv[2])
+if CFG.custom_scenery_dir != sys.argv[3]:
+    sys.exit("custom_scenery_dir " + repr(CFG.custom_scenery_dir) + ", want " + repr(sys.argv[3]))
 """
+
+scenery_dir = "C:\\Users\\Frédéric\\X-Plane 12 €\\Custom Scenery"
 
 # 7-Zip as Ortho4XP finds it, and on Windows, the 7-Zip installed in
 # Program Files when the one in Utils is missing.
@@ -766,9 +772,10 @@ def test_tile(work, top):
         for (k, v) in config.items():
             f.write(k + "=" + str(v) + "\n")
     gs = os.path.join(work, "Global Scenery")
-    with open(os.path.join(top, "Ortho4XP.cfg"), "w") as f:
+    with open(os.path.join(top, "Ortho4XP.cfg"), "w", encoding = "cp1252") as f:
         f.write("skip_downloads=" + payload + "\n")
         f.write("custom_overlay_src=" + gs + "\n")
+        f.write("custom_scenery_dir=" + scenery_dir + "\n")
     errors = check("globalscenery", global_scenery_code, [gs], work, top, os.path.join(work, "Ortho4XP.log"))
     if errors:
         return errors
@@ -814,7 +821,7 @@ def test_tile(work, top):
     with open(legacy, "w") as f:
         for zone in config["zone_list"] + [payload]:
             f.write("zone_list.append(" + str(zone) + ")\n")
-    errors += check("legacy", legacy_code, [legacy, repr(config["zone_list"])], work, top, log)
+    errors += check("legacy", legacy_code, [legacy, repr(config["zone_list"]), scenery_dir], work, top, log)
     errors += check("7z", seven_zip_code, [], work, top, log)
     errors += check("link", link_code, [], work, top, log)
     errors += check("geotiff", geotiff_code, [os.path.join(top, config["custom_dem"])], work, top, log)

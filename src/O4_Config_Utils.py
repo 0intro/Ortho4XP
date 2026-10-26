@@ -21,15 +21,17 @@ import O4_Overlay_Utils as OVL
 ################################################################################
 def open_config(file_name):
     # Python before 3.15 wrote config files in the locale encoding, cp1252
-    # on most Windows systems.
-    f = open(file_name, encoding="utf-8")
-    try:
-        f.read()
-    except UnicodeDecodeError:
-        f.close()
-        return open(file_name, encoding=locale.getencoding())
-    f.seek(0)
-    return f
+    # on most Windows systems, and a config may come from another system.
+    # latin-1 reads any bytes.
+    for encoding in ("utf-8", locale.getencoding(), "cp1252", "latin-1"):
+        f = open(file_name, encoding=encoding)
+        try:
+            f.read()
+        except UnicodeDecodeError:
+            f.close()
+            continue
+        f.seek(0)
+        return f
 
 
 def read_config(file_name):
