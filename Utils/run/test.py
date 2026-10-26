@@ -186,6 +186,80 @@ if "BEGIN_POLYGON 1 " not in text or "BEGIN_POLYGON 0 " in text or "BEGIN_SEGMEN
     sys.exit(dsf + ": want the forest and the road, without the beach")
 """
 
+# Shift-click on Build Mesh: moulinette reorders the mesh, which keeps its
+# triangles, groups them per texture of the zoomlevel, and numbers the
+# vertices in their order of first use. Step 3 then builds the DSF again.
+sort_mesh_code = """
+import math
+import os
+import subprocess
+import O4_Imagery_Utils as IMG
+IMG.initialize_extents_dict()
+IMG.initialize_color_filters_dict()
+IMG.initialize_providers_dict()
+IMG.initialize_combined_providers_dict()
+import O4_Config_Utils as CFG
+import O4_File_Names as FNAMES
+import O4_Mesh_Utils as MESH
+import O4_Overlay_Utils as OVL
+import O4_Tile_Utils as TILE
+
+def read(path):
+    with open(path) as f:
+        lines = f.read().split("\\n")
+    i = lines.index("Vertices")
+    vertices = [tuple(line.split()) for line in lines[i + 2:i + 2 + int(lines[i + 1])]]
+    i = lines.index("Triangles")
+    triangles = [[int(x) for x in line.split()] for line in lines[i + 2:i + 2 + int(lines[i + 1])]]
+    return (vertices, triangles)
+
+# Each triangle as its corners and type, from its lowest corner on.
+def shapes(vertices, triangles):
+    out = []
+    for t in triangles:
+        corners = [vertices[v - 1] for v in t[:3]]
+        k = corners.index(min(corners))
+        out.append((corners[k:] + corners[:k], t[3]))
+    return sorted(out)
+
+# The texture under the centroid of t, as moulinette computes it.
+def texture(vertices, t, zl):
+    (x, y) = ([float(vertices[v - 1][i]) for v in t[:3]] for i in (0, 1))
+    lat = (y[0] + y[1] + y[2]) / 3.0
+    scale = 2.0 ** (zl - 5)
+    return (int(((x[0] + x[1] + x[2]) / 3.0 / 180.0 + 1.0) * scale),
+        int(scale * (1.0 - math.log(math.tan((90.0 + lat) * (math.pi / 360))) / math.pi)))
+
+tile = CFG.Tile(45, 5, "")
+tile.read_from_config()
+mesh = FNAMES.mesh_file(tile.build_dir, tile.lat, tile.lon)
+(vertices, triangles) = read(mesh)
+if not MESH.sort_mesh(tile):
+    sys.exit("sort_mesh failed")
+(sorted_vertices, sorted_triangles) = read(mesh)
+errors = []
+if shapes(sorted_vertices, sorted_triangles) != shapes(vertices, triangles):
+    errors.append("the triangles changed")
+order = []
+for t in sorted_triangles:
+    for v in t[:3]:
+        if v > len(order):
+            order.append(v)
+if order != list(range(1, len(sorted_vertices) + 1)):
+    errors.append("the vertices are out of their order of first use")
+runs = [texture(sorted_vertices, t, tile.default_zl) for t in sorted_triangles]
+runs = [r for (i, r) in enumerate(runs) if i == 0 or r != runs[i - 1]]
+if len(runs) != len(set(runs)):
+    errors.append("a texture's triangles are apart")
+if not TILE.build_tile(tile):
+    errors.append("Step 3 failed on the sorted mesh")
+dsf = os.path.join(tile.build_dir, "Earth nav data", "+40+000", "+45+005.dsf")
+if subprocess.run([OVL.dsftool_cmd.strip(), "-dsf2text", dsf, "sorted.txt"], stdout = subprocess.DEVNULL).returncode:
+    errors.append(dsf + ": DSFTool cannot read it")
+if errors:
+    sys.exit("\\n".join(errors))
+"""
+
 # The GUI, driven in-process.
 gui_code = """
 import os
@@ -416,11 +490,7 @@ def test_tile(work, top):
     errors += check("overlay", overlay_code, [gs], work, top, log)
     errors += check("norasters", no_rasters_code, [os.path.join(work, "Global Scenery 11")], work, top, log)
 
-    mesh = os.path.join(work, "test.mesh")
-    shutil.copy(os.path.join(build, "Data" + tile + ".mesh"), mesh)
-    status = run([os.path.join(top, "Utils", sys_dir, "moulinette" + exe), "12", mesh], work, log, 300)
-    if status != 0:
-        errors.append("moulinette: exit status " + str(status))
+    errors += check("sortmesh", sort_mesh_code, [], work, top, log)
 
     poly = os.path.join(work, "square.poly")
     with open(poly, "w") as f:

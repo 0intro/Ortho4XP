@@ -21,6 +21,9 @@ add_executable(triangle src/triangle.c)
 target_compile_definitions(triangle PRIVATE ANSI_DECLARATORS)
 target_link_libraries(triangle m)
 
+add_executable(moulinette src/moulinette.c)
+target_link_libraries(moulinette m)
+
 include(ExternalProject)
 
 ExternalProject_Add(nvtt

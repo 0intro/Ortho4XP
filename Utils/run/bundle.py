@@ -69,10 +69,6 @@ launchers = {
         "\"%~dp0python\\python.exe\" -s -E \"%~dp0Ortho4XP.py\" %*\r\n",
 }
 
-# moulinette.exe needs the MinGW-w64 C++ runtime.
-mingw_bin = "/usr/x86_64-w64-mingw32/sys-root/mingw/bin"
-mingw_dlls = ["libgcc_s_seh-1.dll", "libstdc++-6.dll", "libwinpthread-1.dll"]
-
 # Windows provides these DLLs, and the api-ms-win-* API sets.
 system_dlls = {
     "advapi32.dll", "bcrypt.dll", "comctl32.dll", "comdlg32.dll",
@@ -204,8 +200,6 @@ if __name__ == "__main__":
     install_7zip(stage, os.path.join(top, "Utils", cfg["dir"]), cfg["dir"])
     if cfg["dir"] == "win":
         os.remove(os.path.join(top, "Utils", "win", "nvcompress", "nvtt.dll"))
-        for dll in mingw_dlls:
-            shutil.copy2(os.path.join(mingw_bin, dll), os.path.join(top, "Utils", "win"))
 
     with tarfile.open(download(python_url + target["python"], target["sha256"])) as tar:
         tar.extractall(top, filter = "data")
