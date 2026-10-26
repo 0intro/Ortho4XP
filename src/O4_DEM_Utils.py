@@ -725,7 +725,12 @@ def ensure_elevation(source, lat, lon, verbose=True):
         r = http_request(url, source, verbose)
         if not r:
             return 0
-        with zipfile.ZipFile(io.BytesIO(r.content), "r") as zip_ref:
+        try:
+            zip_ref = zipfile.ZipFile(io.BytesIO(r.content), "r")
+        except zipfile.BadZipFile:
+            UI.lvprint(1, "    ERROR: The answer of", url, "is not a zip file.")
+            return 0
+        with zip_ref:
             for f in zip_ref.filelist:
                 fname = os.path.basename(f.filename)
                 if not fname:
@@ -754,9 +759,10 @@ def ensure_elevation(source, lat, lon, verbose=True):
                 ):
                     if not os.path.isdir(os.path.dirname(out_filename)):
                         os.makedirs(os.path.dirname(out_filename))
-                    with open(out_filename, "wb") as out:
+                    with open(out_filename + ".part", "wb") as out:
                         UI.vprint(2, "      Extracting", out_filename)
                         out.write(zip_ref.open(f, "r").read())
+                    os.replace(out_filename + ".part", out_filename)
     elif source in ("SRTM", "ALOS"):
         file_name = FNAMES.elevation_data(source, lat, lon)
         if os.path.exists(file_name):
@@ -775,12 +781,18 @@ def ensure_elevation(source, lat, lon, verbose=True):
                 abs(lon),
             )
         # The bucket answers 404 for a tile of sea, or outside the dataset.
-        r = http_request(opentopography_url + path, source, verbose)
-        if not r:
+        url = opentopography_url + path
+        if not download_geotiff(url, file_name, source, verbose):
+            if verbose:
+                UI.lvprint(
+                    1,
+                    "    WARNING: No",
+                    source,
+                    "tile from OpenTopography for",
+                    FNAMES.hem_latlon(lat, lon),
+                    "-> zero altitude.",
+                )
             return 0
-        os.makedirs(os.path.dirname(file_name), exist_ok=True)
-        with open(file_name, "wb") as out:
-            out.write(r.content)
     elif source in ("NED1", "NED1/3"):
         if os.path.exists(FNAMES.elevation_data(source, lat, lon)):
             UI.vprint(
@@ -807,24 +819,31 @@ def ensure_elevation(source, lat, lon, verbose=True):
             "USGS_" + nbr + "_" + tid + ".tif"
         )
         url = url_base + usgs_name
-        r = http_request(url, source, verbose)
-        if not r:
+        file_name = FNAMES.elevation_data(source, lat, lon)
+        if not download_geotiff(url, file_name, source, verbose):
             return 0
-        if not os.path.isdir(
-            os.path.dirname(FNAMES.elevation_data(source, lat, lon))
-        ):
-            os.makedirs(
-                os.path.dirname(FNAMES.elevation_data(source, lat, lon))
-            )
-        with open(FNAMES.elevation_data(source, lat, lon), "wb") as out:
-            try:
-                out.write(r.content)
-            except:
-                return 0
     else:
         UI.vprint(1, "   ERROR: Unknown elevation source.")
         return 0
     return 1
+
+################################################################################
+# Saves the GeoTIFF at url as file_name, through a temporary name, so that
+# an interrupted download leaves nothing that Ortho4XP would read again.
+# Returns 1 once the file is in place.
+def download_geotiff(url, file_name, source, verbose):
+    r = http_request(url, source, verbose)
+    if not r:
+        return 0
+    if r.content[:4] not in (b"II*\0", b"MM\0*", b"II+\0", b"MM\0+"):
+        UI.lvprint(1, "    ERROR: The answer of", url, "is not a TIFF file.")
+        return 0
+    os.makedirs(os.path.dirname(file_name), exist_ok=True)
+    with open(file_name + ".part", "wb") as f:
+        f.write(r.content)
+    os.replace(file_name + ".part", file_name)
+    return 1
+
 
 ################################################################################
 def http_request(url, source, verbose=False):
