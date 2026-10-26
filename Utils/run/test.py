@@ -85,8 +85,10 @@ patches = {
 }
 
 # Settings must never run code. The tests put this one in config files and
-# fields, and require that no file named pwned appears.
+# fields, and require that no file named pwned appears. The second needs no
+# builtins and gives a list, so it also gets past an eval without them.
 payload = '__import__("pathlib").Path("pwned").touch()'
+payload_list = "().__class__.__base__.__subclasses__()"
 
 # A tile config in the form of 1.20, which appends zones one per line,
 # holds a bool edited by hand to 1, and hmin, a setting of 1.30 that only
@@ -898,12 +900,14 @@ def test_tile(work, top, errors):
     with open(os.path.join(build, "Ortho4XP_" + tile + ".cfg"), "w") as f:
         for (k, v) in config.items():
             f.write(k + "=" + str(v) + "\n")
+        f.write("masks_width=" + payload + "\n")
     # The airports as 1.40 pickled them, which Step 1 replaces.
     legacy_apt = os.path.join(build, "Data" + tile + ".apt")
     open(legacy_apt, "wb").close()
     gs = os.path.join(work, "Global Scenery")
     with open(os.path.join(top, "Ortho4XP.cfg"), "w", encoding = "cp1252") as f:
         f.write("skip_downloads=" + payload + "\n")
+        f.write("ovl_exclude_pol=" + payload_list + "\n")
         f.write("custom_overlay_src=" + gs + "\n")
         f.write("custom_scenery_dir=" + scenery_dir + "\n")
     errors += check("globalscenery", global_scenery_code, [gs], work, top, os.path.join(work, "Ortho4XP.log"))
@@ -922,8 +926,9 @@ def test_tile(work, top, errors):
 
     with open(log, encoding = "utf-8", errors = "replace") as f:
         out = f.read()
-    if "invalid line: skip_downloads=" not in out:
-        errors.append("Ortho4XP.cfg: no warning for a setting that holds code")
+    for (cfg, line) in (("Ortho4XP.cfg", "skip_downloads="), ("Ortho4XP.cfg", "ovl_exclude_pol="), ("the tile config", "masks_width=")):
+        if "invalid line: " + line not in out:
+            errors.append(cfg + ": no warning for " + line + ", which holds code")
     if "fake headers for provider EVIL not valid" not in out:
         errors.append("EVIL.lay: no warning for headers that hold code")
     if "Error in treating LFZZ.patch.osm" not in out or "Auto-patched 1 runway" not in out:
