@@ -16,6 +16,7 @@ import time
 import urllib.request
 import zipfile
 
+import build
 import configure
 import install
 
@@ -278,6 +279,8 @@ if __name__ == "__main__":
     cfg = target["cfg"]
     stage = os.path.join(build_dir, "bundle", cfg["dir"])
     top = os.path.join(stage, "Ortho4XP")
+    build.set_source_date()
+    configure.run(["cmake", "--build", configure.build_dir("Release", cfg)])
     shutil.rmtree(stage, ignore_errors = True)
     os.makedirs(stage)
 
@@ -317,7 +320,7 @@ if __name__ == "__main__":
     if errors:
         sys.exit("\n".join(errors))
 
-    archive = os.path.join(build_dir, "Ortho4XP-" + git("describe", "--tags", "--always") + "-" + target["archive"])
+    archive = os.path.join(build_dir, "Ortho4XP-" + git("describe", "--tags", "--always", "--dirty") + "-" + target["archive"])
     mtime = int(git("log", "-1", "--no-show-signature", "--format=%ct"))
     if archive.endswith(".zip"):
         write_zip(archive, top, mtime)
