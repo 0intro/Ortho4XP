@@ -274,9 +274,11 @@ def check_agents(agents):
 # of the tile holds the served tile, a neighbor of sea (404) reads as zero
 # altitude, and so does the SRTM tile north, for which the server sends
 # the page of a captive portal, which stays out of Elevation_data. A
-# downloaded tile serves again from Elevation_data, an SRTM .hgt placed by
-# hand goes before the download, and a missing tile gets a warning when it
-# is the tile of the build. The labels of 1.40 name the sources too.
+# downloaded tile serves again from Elevation_data, while a cached page or
+# empty file, as earlier versions saved, downloads again. An SRTM .hgt
+# placed by hand goes before the download, and a missing tile gets a
+# warning when it is the tile of the build. The labels of 1.40 name the
+# sources too.
 opentopography_code = geotiff_writer + file_server + """
 import contextlib
 import io
@@ -299,6 +301,9 @@ served["/SRTM_GL1/SRTM_GL1_srtm/N46E005.tif"] = b"<html><body>Log in to the netw
 hgt = FNAMES.base_file_name(lat - 1, lon) + "_SRTMv3.hgt"
 os.makedirs(os.path.dirname(hgt), exist_ok = True)
 numpy.full((3601, 3601), 7, ">i2").tofile(hgt)
+with open(FNAMES.elevation_data("SRTM", lat, lon), "wb") as f:
+    f.write(served["/SRTM_GL1/SRTM_GL1_srtm/N46E005.tif"])
+open(FNAMES.elevation_data("ALOS", lat, lon), "wb").close()
 sources = [
     (DEM.available_sources[3], srtm),
     ("SRTMv3 (from OpenTopography) - NOW REQUIRES MANUAL DOWNLOAD", srtm),
@@ -326,6 +331,33 @@ with contextlib.redirect_stdout(out):
 if got or "WARNING: No SRTM tile" not in out.getvalue():
     sys.exit("a missing tile of the build: " + str(got) + ", " + repr(out.getvalue()) + ", want 0 and a warning")
 check_agents(agents)
+"""
+
+# A Viewfinderpanoramas tile in Elevation_data serves again at its full
+# size only, and one cut short, as 1.40 could leave it, downloads again.
+# Viewfinderpanoramas has 3" tiles at 40 5.
+viewfinder_code = """
+import contextlib
+import io
+import os
+import O4_DEM_Utils as DEM
+import O4_File_Names as FNAMES
+hgt = FNAMES.viewfinderpanorama(40, 5)
+os.makedirs(os.path.dirname(hgt), exist_ok = True)
+urls = []
+DEM.http_request = lambda url, source, verbose = False: urls.append(url) or 0
+for (size, reused) in ((2 * 1201 ** 2, True), (2 * 1201 ** 2 - 1000, False)):
+    with open(hgt, "wb") as f:
+        f.write(bytes(size))
+    urls.clear()
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        got = DEM.ensure_elevation("View", 40, 5)
+    if reused and (got != 1 or urls):
+        sys.exit(hgt + " of " + str(size) + " bytes: downloaded again, want it reused")
+    if not reused and (not urls or "is damaged" not in out.getvalue()):
+        sys.exit(hgt + " of " + str(size) + " bytes: reused, want a warning and a download")
+os.remove(hgt)
 """
 
 # The mesh of the tile from a community server, served here in a 7z
@@ -1024,6 +1056,7 @@ def test_tile(work, top, errors):
     errors += check("apt", apt_code, [], work, top, log)
     errors += check("geotiff", geotiff_code, [os.path.join(top, config["custom_dem"])], work, top, log)
     errors += check("opentopography", opentopography_code, [], work, top, log)
+    errors += check("viewfinder", viewfinder_code, [], work, top, log)
     errors += check("community", community_code, [], work, top, log)
     errors += check("extent", extent_code, [payload], work, top, log)
     if os.path.exists(os.path.join(top, "pwned")):
