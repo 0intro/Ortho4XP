@@ -118,12 +118,18 @@ endif()
 
 include(ExternalProject)
 
+# On a Mac, one build makes a universal nvcompress. The list of
+# architectures reaches NVTT with | in place of ;.
+string(REPLACE ";" "|" osx_architectures "${CMAKE_OSX_ARCHITECTURES}")
 ExternalProject_Add(nvtt
     URL https://github.com/castano/nvidia-texture-tools/archive/refs/tags/2.1.2.tar.gz
     URL_HASH SHA256=0187336b0285038fab4f4a6b7654f51beaebab040b6aad53c147c917c5ab519b
     PATCH_COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_SOURCE_DIR}/src/patch-nvtt.cmake
+    LIST_SEPARATOR |
     CMAKE_ARGS
         -DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}
+        -DCMAKE_OSX_ARCHITECTURES=${osx_architectures}
+        -DCMAKE_OSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}
         -DCMAKE_BUILD_TYPE=Release
         -DCMAKE_EXE_LINKER_FLAGS=${static}
         -DCMAKE_POLICY_VERSION_MINIMUM=3.5

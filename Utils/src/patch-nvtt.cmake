@@ -1,5 +1,6 @@
 # Patch NVIDIA Texture Tools 2.1.2 to build nvcompress for any x86-64
-# CPU, natively and with MinGW-w64. Runs in the NVTT source directory.
+# CPU, natively and with MinGW-w64, and for arm64 Macs. Runs in the NVTT
+# source directory.
 
 function(replace path old new)
     file(READ ${path} text)
@@ -32,6 +33,14 @@ replace(src/nvthread/nvthread.cpp
 replace(src/nvmath/Matrix.cpp
     "#if !NV_CC_MSVC && !NV_OS_ORBIS"
     "#if NV_OS_WIN32\n#include <malloc.h>\n#elif !NV_OS_ORBIS")
+
+# nvcore.h names arm64 NV_CPU_ARM_64, and Debug.h and Debug.cpp test
+# NV_CPU_AARCH64, as castano/nvidia-texture-tools#330 fixed after 2.1.2.
+replace(src/nvcore/nvcore.h "#   define NV_CPU_ARM_64 1" "#   define NV_CPU_AARCH64 1")
+replace(src/nvcore/nvcore.h "// NV_CPU_ARM_64" "// NV_CPU_AARCH64")
+replace(src/nvcore/Debug.cpp
+    "#    elif NV_CPU_ARM\n        ucontext_t"
+    "#    elif NV_CPU_ARM || NV_CPU_AARCH64\n        ucontext_t")
 
 # GCC needs inline beside always_inline, as in DefsGnucLinux.h.
 replace(src/nvcore/DefsGnucWin32.h
