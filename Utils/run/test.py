@@ -1004,6 +1004,22 @@ def test_moulinette(work, top, log):
     with open(mesh) as f:
         if status != 1 or f.read() != broken:
             errors.append("moulinette on a mesh without triangles: status " + str(status) + ", want 1 and the mesh as it was")
+    bad = [
+        ("a vertex list cut short", small_mesh.replace("5.1 45.2 0.003 0\n5.2 45.2 0.004 0\n", "")),
+        ("a normal of one number", small_mesh.replace("0.3 0.4 0\n0.3 0.4 0\n", "0.3 0.4 0\n0.3\n")),
+        ("a triangle list cut short", small_mesh.replace("Triangles\n2\n", "Triangles\n3\n")),
+        ("a triangle of three numbers", small_mesh.replace("2 4 3 1\n", "2 4 3\n")),
+        ("a line of 300 bytes", small_mesh.replace("5.2 45.1 0.002 0", "5.2 45.1 0.002 0" + " " * 300)),
+        ("a triangle on a missing vertex", small_mesh.replace("2 4 3 1\n", "2 5 3 1\n")),
+        ("a vertex count beyond int", small_mesh.replace("Vertices\n4\n", "Vertices\n2147483647\n")),
+    ]
+    for (what, text) in bad:
+        with open(mesh, "w") as f:
+            f.write(text)
+        status = run([moulinette, "0", mesh], work, log, 60)
+        with open(mesh) as f:
+            if status != 1 or f.read() != text:
+                errors.append("moulinette on a mesh with " + what + ": status " + str(status) + ", want 1 and the mesh as it was")
     status = run([moulinette, "0"], work, log, 60)
     if status != 2:
         errors.append("moulinette without a mesh: status " + str(status) + ", want 2")

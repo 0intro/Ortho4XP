@@ -21,6 +21,7 @@
  * follow the order in which the triangles first use them, and those no
  * triangle uses go.
  */
+#include <limits.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -28,7 +29,8 @@
 #include <time.h>
 
 enum {
-	Linelen = 256	/* longest line kept, newline included */
+	Linelen = 256,	/* longest line kept, newline included */
+	Maxcount = INT_MAX/4	/* most items in a section, for int indices */
 };
 
 /* M_PI, which strict C lacks */
@@ -46,6 +48,7 @@ struct AvlNode {
 };
 
 static void *emalloc(size_t);
+static int toolong(char*, FILE*);
 static char *voidlines(int);
 static int edgekey(int, int);
 static int avlheight(AvlNode*);
@@ -92,9 +95,17 @@ main(int argc, char *argv[])
 		puts("  Error: Mesh file is empty.");
 		return 1;
 	}
+	if (toolong(header, f)) {
+		puts("  Error: Mesh file has a line too long.");
+		return 1;
+	}
 	state = 0;
 	iv = in = it = 0;
 	while (fgets(line, sizeof line, f) != NULL) {
+		if (toolong(line, f)) {
+			puts("  Error: Mesh file has a line too long.");
+			return 1;
+		}
 		switch (state) {
 		case 0:
 			if (sscanf(line, "%s", word) == 1) {
@@ -109,6 +120,10 @@ main(int argc, char *argv[])
 		case 2:
 			n = sscanf(line, "%d", &nv);
 			state = 0;
+			if (n == 1 && nv > Maxcount) {
+				puts("  Error: Mesh file is too large.");
+				return 1;
+			}
 			if (n == 1) {
 				iv = 0;
 				if (nv > 0) {
@@ -119,6 +134,10 @@ main(int argc, char *argv[])
 			}
 			break;
 		case 3:
+			if (sscanf(line, "%lf %lf %lf", &x, &y, &z) != 3) {
+				puts("  Error: Mesh file has a malformed vertex.");
+				return 1;
+			}
 			strncpy(vert + (size_t)iv*Linelen, line, Linelen);
 			if (++iv >= nv)
 				state = 0;
@@ -126,6 +145,10 @@ main(int argc, char *argv[])
 		case 4:
 			n = sscanf(line, "%d", &nn);
 			state = 0;
+			if (n == 1 && nn > Maxcount) {
+				puts("  Error: Mesh file is too large.");
+				return 1;
+			}
 			if (n == 1) {
 				in = 0;
 				if (nn > 0) {
@@ -136,6 +159,10 @@ main(int argc, char *argv[])
 			}
 			break;
 		case 5:
+			if (sscanf(line, "%lf %lf", &x, &y) != 2) {
+				puts("  Error: Mesh file has a malformed normal.");
+				return 1;
+			}
 			strncpy(norm + (size_t)in*Linelen, line, Linelen);
 			if (++in >= nn)
 				state = 0;
@@ -143,6 +170,10 @@ main(int argc, char *argv[])
 		case 6:
 			n = sscanf(line, "%d", &nt);
 			state = 0;
+			if (n == 1 && nt > Maxcount) {
+				puts("  Error: Mesh file is too large.");
+				return 1;
+			}
 			if (n == 1) {
 				it = 0;
 				if (nt > 0) {
@@ -158,9 +189,9 @@ main(int argc, char *argv[])
 			a = b = c = d = 0;
 			if (sscanf(line, "%d %d %d %d", &a, &b, &c, &d) == 4) {
 				if (tri != NULL) {
-					tri[4*it] = a - 1;
-					tri[4*it + 1] = b - 1;
-					tri[4*it + 2] = c - 1;
+					tri[4*it] = a > 0 ? a - 1 : -1;
+					tri[4*it + 1] = b > 0 ? b - 1 : -1;
+					tri[4*it + 2] = c > 0 ? c - 1 : -1;
 					tri[4*it + 3] = d;
 				}
 				if (++it >= nt)
@@ -170,7 +201,12 @@ main(int argc, char *argv[])
 			break;
 		}
 	}
+	n = ferror(f);
 	fclose(f);
+	if (n != 0) {
+		puts("  Error: Unable to read mesh file.");
+		return 1;
+	}
 	printf("    Read %d vertices, %d normals, %d triangles.\n", nv, nn, nt);
 	if (tri == NULL) {
 		puts("  Error: Unable to process triangles.");
@@ -180,6 +216,15 @@ main(int argc, char *argv[])
 		puts("  Error: Unable to process vertices.");
 		return 1;
 	}
+	if (iv < nv || in < nn || it < nt) {
+		puts("  Error: Mesh file is incomplete.");
+		return 1;
+	}
+	for (i = 0; i < nt*4; i++)
+		if (i%4 != 3 && (tri[i] < 0 || tri[i] >= nv)) {
+			puts("  Error: A triangle refers to a missing vertex.");
+			return 1;
+		}
 
 	newtri = emalloc((size_t)nt * 4 * sizeof newtri[0]);
 	for (i = 0; i < nt; i++) {
@@ -507,6 +552,13 @@ Write:
 	free(norm);
 	puts("Finished.");
 	return 0;
+}
+
+/* whether fgets cut line short of its newline before the end of f */
+static int
+toolong(char *line, FILE *f)
+{
+	return strchr(line, '\n') == NULL && !feof(f);
 }
 
 static void *
