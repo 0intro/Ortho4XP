@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 
 # Check the imagery providers live: load them as Ortho4XP does, fetch the
-# imagery of a ZL 16 tile inside the coverage of each, and print a line per
-# provider: its code, then ok and the mean color of the image, blank and
-# the color of an image of one color, fail and the answers of the server or
-# the error, or skip with api_key for a provider that needs a key. A
-# provider in a directory without a point below fails too, and so does a
-# provider file that Ortho4XP rejects. With arguments, check only the
-# providers they name. Exits 1 if one is blank or fails.
+# imagery of a ZL 16 tile inside the coverage of each from its own server,
+# its fallback aside, and print a line per provider: its code, then ok and
+# the mean color of the image, blank and the color of an image of one
+# color, fail and the answers of the server or the error, or skip with
+# api_key for a provider that needs a key. A provider in a directory
+# without a point below fails too, and so does a provider file that
+# Ortho4XP rejects. With arguments, check only the providers they name.
+# Exits 1 if one is blank or fails.
 
 import math
 import os
@@ -93,6 +94,7 @@ def check(provider):
     if point is None:
         return ("fail", "no test point for directory " + provider["directory"])
     (x, y) = mercator(*point)
+    provider = {k: v for (k, v) in provider.items() if k != "fallback"}
     answers.clear()
     (ok, image) = IMG.build_texture_from_bbox_and_size((x - half, y + half, x + half, y - half), "3857", (256, 256), provider)
     if not ok:

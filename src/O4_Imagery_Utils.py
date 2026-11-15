@@ -530,6 +530,30 @@ def initialize_providers_dict():
                     file_name,
                 )
             f.close()
+    # A provider of the webmercator grid may name in fallback another one
+    # of that grid, which then serves the tiles that the server of the
+    # first answers with 404 or sends all white. The fallback must not name
+    # a fallback itself.
+    for (provider_code, provider) in list(providers_dict.items()):
+        if "fallback" not in provider:
+            continue
+        fallback = providers_dict.get(provider["fallback"], {})
+        if (
+            provider.get("grid_type") != "webmercator"
+            or fallback.get("grid_type") != "webmercator"
+            or "fallback" in fallback
+        ):
+            UI.vprint(
+                0,
+                "Error in fallback for provider",
+                provider_code,
+                ":",
+                provider["fallback"] + ".",
+                "A provider of the webmercator grid may fall back on",
+                "another one of that grid, which must not fall back itself.",
+                "Provider skipped.",
+            )
+            del providers_dict[provider_code]
 
 
 ################################################################################
@@ -1323,6 +1347,15 @@ def get_wmts_image(tilematrix, til_x, til_y, provider, http_session):
         (success, data) = http_request_to_image(
             width, height, url, request_headers, http_session
         )
+        # IGN's server answers 404 away from its imagery, and sends all
+        # white tiles near its edge. For a provider with a fallback, an all
+        # white tile goes to the fallback as a 404 does.
+        if (
+            success
+            and "fallback" in provider
+            and data.convert("RGB").getextrema() == ((255, 255),) * 3
+        ):
+            (success, data) = (0, "[404]")
         if success and not down_sample:
             return (success, data)
         elif success and down_sample:
@@ -1349,6 +1382,14 @@ def get_wmts_image(tilematrix, til_x, til_y, provider, http_session):
                 provider["grid_type"] != "webmercator"
             ):
                 return (0, Image.new("RGB", (width, height), "white"))
+            if "fallback" in provider:
+                return get_wmts_image(
+                    tilematrix,
+                    til_x,
+                    til_y,
+                    providers_dict[provider["fallback"]],
+                    http_session,
+                )
             til_x = til_x // 2
             til_y = til_y // 2
             tilematrix -= 1
