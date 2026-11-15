@@ -791,6 +791,34 @@ for (what, step, merged, folder) in steps:
     os.remove(merged(46, 5))
 """
 
+# Every provider file loads, and so does every combined provider, which
+# Ortho4XP drops with a printed line when it rejects one. Providers/Test
+# holds the providers of these checks.
+provider_files_code = """
+import contextlib
+import io
+import os
+import O4_File_Names as FNAMES
+import O4_Imagery_Utils as IMG
+IMG.initialize_extents_dict()
+IMG.initialize_color_filters_dict()
+IMG.initialize_providers_dict()
+out = io.StringIO()
+with contextlib.redirect_stdout(out):
+    IMG.initialize_combined_providers_dict()
+errors = []
+for d in sorted(os.listdir(FNAMES.Provider_dir)):
+    if d == "Test" or not os.path.isdir(os.path.join(FNAMES.Provider_dir, d)):
+        continue
+    for name in sorted(os.listdir(os.path.join(FNAMES.Provider_dir, d))):
+        code = name.split(".")[0]
+        if "." in name and name.split(".")[-1] == "lay" and code not in IMG.providers_dict and code not in IMG.providers_without_key:
+            errors.append(os.path.join("Providers", d, name) + ": rejected")
+errors += [line for line in out.getvalue().splitlines() if "combined provider" in line.lower()]
+if errors:
+    sys.exit("\\n".join(errors))
+"""
+
 # A provider that waits for its api_key: Step 3 names its .lay file when
 # the tile takes its imagery, and warns about it as a layer of a combined
 # provider over the tile, which the other layers serve.
@@ -1329,6 +1357,7 @@ def test_tile(work, top, errors):
         errors.append("Ortho4XP.py without triangle: status " + str(r.returncode) + ", stderr " + repr(r.stderr[-300:]))
     errors += check("stop", stop_code, [], work, top, log)
     errors += check("customosm", custom_osm_code, [], work, top, log)
+    errors += check("providerfiles", provider_files_code, [], work, top, log)
     errors += check("apikey", api_key_code, [], work, top, log)
     errors += check("failures", failures_code, [], work, top, log)
     return errors
