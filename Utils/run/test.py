@@ -830,6 +830,87 @@ for (website, want, text) in cases:
         sys.exit(website + ": " + str(got) + ", " + repr(out.getvalue()) + ", want " + str(want) + " and " + repr(text))
 """
 
+# Failures inside the steps: a task that raises fails its parallel launch
+# while the others run, a texture whose build raises counts as failed, a
+# stopped Step 3 leaves its DSF inactive, and a mask whose build raises
+# fails Step 2.5. That last one leaves the tile without masks, so this
+# check runs last.
+failures_code = """
+import os
+import queue
+import shutil
+import threading
+import O4_Config_Utils as CFG
+import O4_File_Names as FNAMES
+import O4_Imagery_Utils as IMG
+import O4_Mask_Utils as MASK
+import O4_Parallel_Utils as PAR
+import O4_Tile_Utils as TILE
+import O4_UI_Utils as UI
+IMG.initialize_extents_dict()
+IMG.initialize_color_filters_dict()
+IMG.initialize_providers_dict()
+IMG.initialize_combined_providers_dict()
+threading.excepthook = lambda args: None
+def fail(*args):
+    raise ValueError("a test failure")
+errors = []
+
+tasks = queue.Queue()
+done = []
+def task(i):
+    if i == 3:
+        fail()
+    done.append(i)
+    return 1
+for i in range(10):
+    tasks.put((i,))
+workers = PAR.parallel_launch(task, tasks, 2)
+for _ in workers:
+    tasks.put("quit")
+if PAR.parallel_join(workers) or sorted(done) != [0, 1, 2, 4, 5, 6, 7, 8, 9]:
+    errors.append("parallel_join with a task that raises: ran " + str(sorted(done)) + ", want 0 and the other tasks")
+
+tile = CFG.Tile(45, 5, "")
+tile.read_from_config()
+build_jpeg_ortho = IMG.build_jpeg_ortho
+IMG.build_jpeg_ortho = fail
+textures = queue.Queue()
+textures.put((0, 0, 16, "TEST"))
+textures.put("quit")
+failed = []
+try:
+    TILE.download_textures(tile, textures, queue.Queue(), failed)
+except ValueError:
+    pass
+IMG.build_jpeg_ortho = build_jpeg_ortho
+if failed != [(0, 0, 16, "TEST")]:
+    errors.append("download_textures with a build that raises: failed " + str(failed) + ", want the texture")
+
+stopped = CFG.Tile(45, 5, "")
+stopped.read_from_config()
+stopped.build_dir = os.path.abspath("stopped")
+os.makedirs(stopped.build_dir)
+shutil.copy(FNAMES.mesh_file(tile.build_dir, 45, 5), FNAMES.mesh_file(stopped.build_dir, 45, 5))
+dsf = os.path.join(stopped.build_dir, "Earth nav data", "+40+000", "+45+005.dsf")
+def stop(tile, download_queue):
+    with open(dsf + ".tmp", "wb") as f:
+        f.write(b"XPLNEDSF")
+    UI.red_flag = True
+    return 0
+TILE.DSF.build_dsf = stop
+TILE.skip_downloads = True
+if TILE.build_tile(stopped) or os.path.exists(dsf):
+    errors.append("Step 3 stopped: " + dsf + " in place, want it inactive")
+shutil.rmtree(stopped.build_dir)
+
+MASK.build_water_pre_mask = fail
+if MASK.build_masks(tile):
+    errors.append("build_masks with a mask that raises: succeeded")
+if errors:
+    sys.exit("\\n".join(errors))
+"""
+
 # A mesh of two triangles, whose header moulinette copies as it is.
 small_mesh = """MeshVersionFormatted 2 %d %%
 Dimension 3
@@ -1239,6 +1320,7 @@ def test_tile(work, top, errors):
     errors += check("stop", stop_code, [], work, top, log)
     errors += check("customosm", custom_osm_code, [], work, top, log)
     errors += check("apikey", api_key_code, [], work, top, log)
+    errors += check("failures", failures_code, [], work, top, log)
     return errors
 
 # moulinette on small meshes.
