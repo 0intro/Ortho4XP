@@ -737,6 +737,22 @@ if errors:
     sys.exit("\\n".join(errors))
 """
 
+# Build All and the batch build stop at the first step that fails, here
+# Step 1, as the command line does.
+stop_code = """
+import O4_Config_Utils as CFG
+import O4_Tile_Utils as TILE
+steps = []
+TILE.VMAP.build_poly_file = lambda tile: steps.append("Step 1") or 0
+TILE.MESH.build_mesh = lambda tile: steps.append("Step 2") or 1
+tile = CFG.Tile(45, 5, "")
+if TILE.build_all(tile) or steps != ["Step 1"]:
+    sys.exit("Build All after a failed Step 1: ran " + str(steps) + ", want Step 1 alone")
+steps.clear()
+if TILE.build_tile_list(tile, [(45, 5), (46, 5)], True, True, False, False, False, False) or steps != ["Step 1"]:
+    sys.exit("batch build after a failed Step 1: ran " + str(steps) + ", want Step 1 alone")
+"""
+
 # A mesh of two triangles, whose header moulinette copies as it is.
 small_mesh = """MeshVersionFormatted 2 %d %%
 Dimension 3
@@ -1143,6 +1159,7 @@ def test_tile(work, top, errors):
     os.rename(triangle + ".hidden", triangle)
     if r.returncode != 2 or "Missing " + os.path.join(".", "Utils", sys_dir, "triangle" + exe) not in r.stderr:
         errors.append("Ortho4XP.py without triangle: status " + str(r.returncode) + ", stderr " + repr(r.stderr[-300:]))
+    errors += check("stop", stop_code, [], work, top, log)
     return errors
 
 # moulinette on small meshes.
