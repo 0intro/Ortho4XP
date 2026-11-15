@@ -753,6 +753,44 @@ if TILE.build_tile_list(tile, [(45, 5), (46, 5)], True, True, False, False, Fals
     sys.exit("batch build after a failed Step 1: ran " + str(steps) + ", want Step 1 alone")
 """
 
+# Custom coastline and water data whose way runs to a node that they
+# lack, in a folder of custom files and in the file that merges them:
+# Steps 1 and 2 stop on it, and the folder gives no merged file.
+custom_osm_code = """
+import bz2
+import os
+import numpy
+import O4_Config_Utils as CFG
+import O4_File_Names as FNAMES
+import O4_Mesh_Utils as MESH
+import O4_Vector_Map as VMAP
+import O4_Vector_Utils as VECT
+osm = ('<?xml version="1.0" encoding="UTF-8"?>\\n<osm version="0.6">\\n'
+    + '  <node id="1" lat="46.5" lon="5.5"/>\\n'
+    + '  <way id="1">\\n    <nd ref="1"/>\\n    <nd ref="2"/>\\n  </way>\\n</osm>\\n')
+tile = CFG.Tile(46, 5, "")
+tile.coast_curv_tol = 2 * tile.curvature_tol
+weights = numpy.ones((1001, 1001), dtype = numpy.float32)
+steps = [
+    ("Step 1 coastline", lambda: VMAP.include_sea(VECT.Vector_Map(), tile), FNAMES.custom_coastline, FNAMES.custom_coastline_dir),
+    ("Step 1 water", lambda: VMAP.include_water(VECT.Vector_Map(), tile), FNAMES.custom_water, FNAMES.custom_water_dir),
+    ("Step 2 coastline", lambda: MESH.build_curv_tol_weight_map(tile, weights), FNAMES.custom_coastline, FNAMES.custom_coastline_dir),
+]
+for (what, step, merged, folder) in steps:
+    custom = os.path.join(folder(46, 5), "corrupted.osm")
+    os.makedirs(folder(46, 5), exist_ok = True)
+    with open(custom, "w", encoding = "utf-8") as f:
+        f.write(osm)
+    if step() != 0 or os.path.exists(merged(46, 5)):
+        sys.exit(what + ": went on with a folder of corrupted data, or merged it")
+    os.remove(custom)
+    with bz2.open(merged(46, 5), "wt", encoding = "utf-8") as f:
+        f.write(osm)
+    if step() != 0:
+        sys.exit(what + ": went on with a corrupted file")
+    os.remove(merged(46, 5))
+"""
+
 # A mesh of two triangles, whose header moulinette copies as it is.
 small_mesh = """MeshVersionFormatted 2 %d %%
 Dimension 3
@@ -1160,6 +1198,7 @@ def test_tile(work, top, errors):
     if r.returncode != 2 or "Missing " + os.path.join(".", "Utils", sys_dir, "triangle" + exe) not in r.stderr:
         errors.append("Ortho4XP.py without triangle: status " + str(r.returncode) + ", stderr " + repr(r.stderr[-300:]))
     errors += check("stop", stop_code, [], work, top, log)
+    errors += check("customosm", custom_osm_code, [], work, top, log)
     return errors
 
 # moulinette on small meshes.
