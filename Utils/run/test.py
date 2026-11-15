@@ -791,6 +791,45 @@ for (what, step, merged, folder) in steps:
     os.remove(merged(46, 5))
 """
 
+# A provider that waits for its api_key: Step 3 names its .lay file when
+# the tile takes its imagery, and warns about it as a layer of a combined
+# provider over the tile, which the other layers serve.
+api_key_code = """
+import contextlib
+import io
+import os
+import O4_Config_Utils as CFG
+import O4_File_Names as FNAMES
+import O4_Imagery_Utils as IMG
+lay = os.path.join(FNAMES.Provider_dir, "Test", "KEY.lay")
+comb = os.path.join(FNAMES.Provider_dir, "KEYCOMB.comb")
+with open(lay, "w") as f:
+    f.write("grid_type=webmercator\\nurl_template=http://127.0.0.1:9/{zoom}/{x}/{y}.jpg?key={api_key}\\napi_key=\\n")
+with open(comb, "w") as f:
+    f.write("KEY global none medium\\nTEST global none low\\n")
+try:
+    IMG.initialize_extents_dict()
+    IMG.initialize_color_filters_dict()
+    IMG.initialize_providers_dict()
+    IMG.initialize_combined_providers_dict()
+finally:
+    os.remove(lay)
+    os.remove(comb)
+tile = CFG.Tile(45, 5, "")
+tile.zone_list = []
+cases = [
+    ("KEY", 0, "ERROR: Provider KEY needs an api_key in " + lay),
+    ("KEYCOMB", 1, "WARNING: Layer KEY of KEYCOMB covers this tile"),
+]
+for (website, want, text) in cases:
+    tile.default_website = website
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        got = IMG.initialize_local_combined_providers_dict(tile)
+    if got != want or text not in out.getvalue():
+        sys.exit(website + ": " + str(got) + ", " + repr(out.getvalue()) + ", want " + str(want) + " and " + repr(text))
+"""
+
 # A mesh of two triangles, whose header moulinette copies as it is.
 small_mesh = """MeshVersionFormatted 2 %d %%
 Dimension 3
@@ -1199,6 +1238,7 @@ def test_tile(work, top, errors):
         errors.append("Ortho4XP.py without triangle: status " + str(r.returncode) + ", stderr " + repr(r.stderr[-300:]))
     errors += check("stop", stop_code, [], work, top, log)
     errors += check("customosm", custom_osm_code, [], work, top, log)
+    errors += check("apikey", api_key_code, [], work, top, log)
     return errors
 
 # moulinette on small meshes.
