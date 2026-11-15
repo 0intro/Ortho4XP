@@ -1,0 +1,9 @@
+# IGN's aerial photos at 5 to 10 cm (layer THR), over a few places such
+# as Paris, its airports, and Marseille. FRorth serves the tiles around
+# them. A tile across the edge of the photos stays white beyond it.
+request_type=tms
+grid_type=webmercator
+url_template=https://data.geopf.fr/wmts?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetTile&LAYER=THR.ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&FORMAT=image/jpeg&TILEMATRIXSET=PM&TILEMATRIX={zoom}&TILEROW={y}&TILECOL={x}
+imagery_dir=grouped
+in_GUI=True
+fallback=FRorth
