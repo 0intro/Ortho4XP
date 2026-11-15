@@ -240,11 +240,13 @@ for path in ("plain.tif", "bytes.tif"):
 """
 
 # serve serves files, a dict of bytes by path, whatever the query string,
-# and answers 404 for other paths. It returns the URL of the server, and
-# the paths and the user agents of the requests, which check_agents
-# requires to name Ortho4XP.
+# with the content type that the extension of the path names, and answers
+# 404 for other paths. It returns the URL of the server, and the paths and
+# the user agents of the requests, which check_agents requires to name
+# Ortho4XP.
 file_server = """
 import http.server
+import mimetypes
 import threading
 def serve(files):
     (paths, agents) = ([], set())
@@ -252,11 +254,15 @@ def serve(files):
         def do_GET(self):
             paths.append(self.path)
             agents.add(self.headers.get("User-Agent"))
-            body = files.get(self.path.split("?")[0])
+            path = self.path.split("?")[0]
+            body = files.get(path)
             if body is None:
                 self.send_error(404)
                 return
             self.send_response(200)
+            kind = mimetypes.guess_type(path)[0]
+            if kind:
+                self.send_header("Content-Type", kind)
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
@@ -859,6 +865,110 @@ for (website, want, text) in cases:
         sys.exit(website + ": " + str(got) + ", " + repr(out.getvalue()) + ", want " + str(want) + " and " + repr(text))
 """
 
+# A provider takes the tiles that its server answers with 404 or sends
+# all white from its fallback, at the same zoomlevel, and the smaller of
+# the two thread counts, 16 for a provider that names none, or names one
+# that is not a number, with a warning. Ortho4XP rejects a provider
+# whose fallback is missing, falls back itself, limits or filters its
+# tiles, waits for an api_key, or is of another grid than the
+# webmercator one, and a provider of another grid that names a fallback.
+# The rules hold for a provider that waits for its own api_key too.
+fallback_code = file_server + """
+import contextlib
+import io
+import os
+import numpy
+from PIL import Image
+import O4_File_Names as FNAMES
+import O4_Imagery_Utils as IMG
+def jpeg(color):
+    f = io.BytesIO()
+    Image.new("RGB", (256, 256), color).save(f, "JPEG", quality = 95)
+    return f.getvalue()
+# FB serves the first tile of a box of 2 x 2 tiles, and the second all
+# white, as IGN's server sends tiles near the edge of its imagery. FB2
+# serves all four, in another color.
+(zl, x, y) = (16, 10, 20)
+box = [(x + i, y + j) for j in (0, 1) for i in (0, 1)]
+colors = {"FB": (200, 60, 40), "FB2": (40, 60, 200)}
+served = {
+    "/FB/%d/%d/%d.jpg" % (zl, x, y): jpeg(colors["FB"]),
+    "/FB/%d/%d/%d.jpg" % (zl, x + 1, y): jpeg((255, 255, 255)),
+}
+for (i, j) in box:
+    served["/FB2/%d/%d/%d.jpg" % (zl, i, j)] = jpeg(colors["FB2"])
+(url, paths, agents) = serve(served)
+# The code of each provider, the line of its grid, its fallback, its
+# other lines, and whether it loads, possibly waiting for its api_key.
+cases = [
+    ("FB", "grid_type=webmercator", "FB2", [], True),
+    ("FB2", "grid_type=webmercator", None, ["max_threads=2"], True),
+    ("FB3", "request_type=tms", None, [], True),
+    ("FB4", "grid_type=webmercator", "FB9", [], False),
+    ("FB5", "grid_type=webmercator", "FB", [], False),
+    ("FB6", "grid_type=webmercator", "FB3", [], False),
+    ("FB7", "request_type=tms", "FB2", [], False),
+    ("FB8", "grid_type=webmercator", "FB10", [], False),
+    ("FB10", "grid_type=webmercator", None, ["max_zl=12"], True),
+    ("FB11", "grid_type=webmercator", "FB12", [], False),
+    ("FB12", "grid_type=webmercator", None, ["api_key="], True),
+    ("FB13", "grid_type=webmercator", "FB9", ["api_key="], False),
+    ("FB14", "grid_type=webmercator", "FB15", [], False),
+    ("FB15", "grid_type=webmercator", None, ["color_filters=SEA"], True),
+    ("FB16", "grid_type=webmercator", "FB17", [], False),
+    ("FB17", "grid_type=webmercator", None, ["super_resol_factor=2"], True),
+    ("FB18", "grid_type=webmercator", "FB19", ["max_threads=32"], True),
+    ("FB19", "grid_type=webmercator", None, ["max_threads=abc"], True),
+]
+lays = []
+for (code, grid, fallback, lines, loads) in cases:
+    lays.append(os.path.join(FNAMES.Provider_dir, "Test", code + ".lay"))
+    key = "?key={api_key}" if "api_key=" in lines else ""
+    with open(lays[-1], "w") as f:
+        f.write(grid + "\\nurl_template=" + url + code + "/{zoom}/{x}/{y}.jpg" + key + "\\n")
+        if fallback:
+            f.write("fallback=" + fallback + "\\n")
+        for line in lines:
+            f.write(line + "\\n")
+out = io.StringIO()
+try:
+    with contextlib.redirect_stdout(out):
+        IMG.initialize_extents_dict()
+        IMG.initialize_color_filters_dict()
+        IMG.initialize_providers_dict()
+finally:
+    for lay in lays:
+        os.remove(lay)
+errors = []
+for (code, grid, fallback, lines, loads) in cases:
+    loaded = code in IMG.providers_dict or code in IMG.providers_without_key
+    warned = "Error in fallback for provider " + code + " :" in out.getvalue() or "Provider " + code + " falls back on " + str(fallback) + ", which needs an api_key" in out.getvalue()
+    if loaded != loads or warned == loads:
+        errors.append(code + " (" + grid + ", fallback " + str(fallback) + "): loaded " + str(loaded) + ", warned " + str(warned) + ", want loaded " + str(loads))
+if "Provider FB11 falls back on FB12, which needs an api_key in" not in out.getvalue():
+    errors.append("FB11: want the message that its fallback FB12 needs an api_key")
+for (code, want) in (("FB", 2), ("FB18", 16), ("FB19", None)):
+    if IMG.providers_dict.get(code, {}).get("max_threads") != want:
+        errors.append(code + ": max_threads " + str(IMG.providers_dict.get(code, {}).get("max_threads")) + ", want " + str(want))
+if "Error in reading max_threads for provider FB19" not in out.getvalue():
+    errors.append("FB19: no warning for max_threads=abc")
+if "FB" not in IMG.providers_dict:
+    sys.exit("\\n".join(errors))
+(ok, image) = IMG.build_texture_from_tilbox((x, y, x + 2, y + 2), zl, IMG.providers_dict["FB"])
+for (i, j) in box:
+    color = colors["FB" if (i, j) == (x, y) else "FB2"]
+    tile = image.crop((256 * (i - x), 256 * (j - y), 256 * (i - x + 1), 256 * (j - y + 1)))
+    mean = numpy.asarray(tile, dtype = float).mean(axis = (0, 1))
+    if numpy.abs(mean - color).max() > 6:
+        errors.append("tile " + str((zl, i, j)) + ": mean color " + str(mean.round(1)) + ", want " + str(color))
+want = sorted(["/FB/%d/%d/%d.jpg" % (zl, i, j) for (i, j) in box] + ["/FB2/%d/%d/%d.jpg" % (zl, i, j) for (i, j) in box[1:]])
+if not ok or sorted(paths) != want:
+    errors.append("build_texture_from_tilbox: success " + str(ok) + ", requests " + str(sorted(paths)) + ", want 1 and " + str(want))
+check_agents(agents)
+if errors:
+    sys.exit("\\n".join(errors))
+"""
+
 # Failures inside the steps: a task that raises fails its parallel launch
 # while the others run, a texture whose build raises counts as failed, a
 # stopped Step 3 leaves its DSF inactive, and build_dsf leaves the active
@@ -1360,6 +1470,7 @@ def test_tile(work, top, errors):
     errors += check("customosm", custom_osm_code, [], work, top, log)
     errors += check("providerfiles", provider_files_code, [], work, top, log)
     errors += check("apikey", api_key_code, [], work, top, log)
+    errors += check("fallback", fallback_code, [], work, top, log)
     errors += check("failures", failures_code, [], work, top, log)
     return errors
 
