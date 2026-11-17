@@ -422,6 +422,64 @@ def build_combined_raster(source, lat, lon, info_only):
     return (epsg, x0, y0, x1, y1, nodata, nxdem, nydem, alt_dem)
 
 ################################################################################
+def read_raster_file(file_name, lat, lon, info_only=False):
+    # Reads the georeferenced raster file_name, with Gdal when it is there
+    # and as a GeoTIFF otherwise, for the tile at lat, lon. Returns, as
+    # read_elevation_from_file does, its EPSG code, the coordinates of its
+    # first and last posts from the corner of the tile, its no_data value,
+    # its size, and its values, row 0 to the north, with -32768 for no
+    # data. Raises on a file it cannot read.
+    read_raster = read_raster_gdal if has_gdal else read_geotiff
+    (alt_dem, geo, nodata, epsg, nxdem, nydem) = read_raster(
+        file_name, info_only
+    )
+    if not info_only:
+        # Float rasters may mark nodata with NaN, whatever their tag.
+        alt_dem[numpy.isnan(alt_dem)] = -32768
+    if nodata is None:
+        UI.vprint(
+            1,
+            "    WARNING: raster DEM does not advertise its no_data ",
+            "value, assuming -32768.",
+        )
+        nodata = -32768
+    else:  
+        # elevations being stored as float32, we push the nodata to that 
+        # framework too, and then replace no_data values by -32768 
+        # anyway for uniformity
+        nodata = numpy.float32(nodata)
+        if not info_only:
+            alt_dem[alt_dem == nodata] = -32768
+        nodata = -32768
+    if epsg is None:
+        UI.vprint(
+            1,
+            "    WARNING: raster DEM does not advertise its EPSG ",
+            "code, assuming 4326.",
+        )
+        epsg = 4326
+    if epsg not in (
+        4326,
+        4269,
+    ):  
+    # let's be blind about 4269 which might be sufficiently close to 
+    # 4326 for our purposes
+        UI.lvprint(
+            1,
+            "    WARNING: unsupported EPSG code ",
+            epsg,
+            ". Only EPSG:4326 is supported, result is likely to ",
+            "be non sense.",
+        )
+    # We are assuming AREA_OR_POINT is area here
+    x0 = geo[0] + 0.5 * geo[1] - lon
+    y1 = geo[3] + 0.5 * geo[5] - lat
+    x1 = x0 + (nxdem - 1) * geo[1]
+    y0 = y1 + (nydem - 1) * geo[5]
+    return (epsg, x0, y0, x1, y1, nodata, nxdem, nydem, alt_dem)
+
+
+################################################################################
 def read_elevation_from_file(
     file_name, lat, lon, info_only=False, base_if_error=3601
 ):
@@ -487,53 +545,9 @@ def read_elevation_from_file(
         nodata = -32768
     elif has_gdal or file_name.lower().endswith((".tif", ".tiff")):
         try:
-            read_raster = read_raster_gdal if has_gdal else read_geotiff
-            (alt_dem, geo, nodata, epsg, nxdem, nydem) = read_raster(
-                file_name, info_only
+            (epsg, x0, y0, x1, y1, nodata, nxdem, nydem, alt_dem) = (
+                read_raster_file(file_name, lat, lon, info_only)
             )
-            if not info_only:
-                # Float rasters may mark nodata with NaN, whatever their tag.
-                alt_dem[numpy.isnan(alt_dem)] = -32768
-            if nodata is None:
-                UI.vprint(
-                    1,
-                    "    WARNING: raster DEM does not advertise its no_data ",
-                    "value, assuming -32768.",
-                )
-                nodata = -32768
-            else:  
-                # elevations being stored as float32, we push the nodata to that 
-                # framework too, and then replace no_data values by -32768 
-                # anyway for uniformity
-                nodata = numpy.float32(nodata)
-                if not info_only:
-                    alt_dem[alt_dem == nodata] = -32768
-                nodata = -32768
-            if epsg is None:
-                UI.vprint(
-                    1,
-                    "    WARNING: raster DEM does not advertise its EPSG ",
-                    "code, assuming 4326.",
-                )
-                epsg = 4326
-            if epsg not in (
-                4326,
-                4269,
-            ):  
-            # let's be blind about 4269 which might be sufficiently close to 
-            # 4326 for our purposes
-                UI.lvprint(
-                    1,
-                    "    WARNING: unsupported EPSG code ",
-                    epsg,
-                    ". Only EPSG:4326 is supported, result is likely to ",
-                    "be non sense.",
-                )
-            # We are assuming AREA_OR_POINT is area here
-            x0 = geo[0] + 0.5 * geo[1] - lon
-            y1 = geo[3] + 0.5 * geo[5] - lat
-            x1 = x0 + (nxdem - 1) * geo[1]
-            y0 = y1 + (nydem - 1) * geo[5]
         except:
             UI.lvprint(
                 1,
