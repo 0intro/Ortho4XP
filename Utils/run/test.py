@@ -119,10 +119,13 @@ scenery_dir = "C:\\Users\\Frédéric\\X-Plane 12 €\\Custom Scenery"
 # 7-Zip as Ortho4XP finds it, and on Windows, the 7-Zip installed in
 # Program Files when the one in Utils is missing. A copy in Utils that
 # cannot run is passed over, and a 7-Zip that fails to start gets an
-# error.
+# error. A Global Scenery DSF whose archive is damaged leaves nothing in
+# tmp.
 seven_zip_code = """
 import os
+import random
 import subprocess
+import O4_File_Names as FNAMES
 import O4_Overlay_Utils as OVL
 cmd = OVL.seven_zip()
 if not cmd:
@@ -162,6 +165,17 @@ if os.name != "nt":
         os.chmod(bundled, mode)
     if found == bundled:
         sys.exit(bundled + ": found while it cannot run")
+with open("+45+005.dsf", "wb") as f:
+    f.write(random.Random(1).randbytes(65536))
+subprocess.run([cmd, "a", "damaged.7z", "+45+005.dsf"], stdout = subprocess.DEVNULL, check = True)
+os.remove("+45+005.dsf")
+with open("damaged.7z", "rb") as f:
+    data = bytearray(f.read())
+data[100] ^= 0xff
+with open("damaged.7z", "wb") as f:
+    f.write(data)
+if OVL.unpacked_copy(os.path.abspath("damaged.7z"), 45, 5) is not None or os.path.exists(os.path.join(FNAMES.Tmp_dir, "+45+005.dsf")):
+    sys.exit("unpacked_copy: a damaged archive gave a copy, or left one in tmp")
 with open("not7z.txt", "w") as f:
     f.write("Ortho4XP")
 OVL.seven_zip = lambda: os.path.abspath("not7z.txt")

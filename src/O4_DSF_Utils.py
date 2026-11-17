@@ -335,11 +335,7 @@ def create_terrain_file(
 ################################################################################
 def extract_elevation_and_bathymetry_data(lat, lon):
     UI.vprint(1, "     Extracting some rasters from X-Plane's Global Scenery")
-    global_scenery_dsf = os.path.join(
-        OVL.custom_overlay_src,
-        "Earth nav data",
-        FNAMES.long_latlon(lat, lon) + ".dsf",
-    )
+    global_scenery_dsf = OVL.global_scenery_dsf(lat, lon)
     if not os.path.exists(global_scenery_dsf):
         UI.lvprint(
             1,
@@ -349,30 +345,9 @@ def extract_elevation_and_bathymetry_data(lat, lon):
             "Set custom_overlay_src to the Global Scenery directory.",
         )
         return (b"", b"")
-    tmp_file = os.path.join(
-        FNAMES.Tmp_dir, FNAMES.short_latlon(lat, lon) + ".dsf"
-    )
-    UI.vprint(2, "     Making a copy of the Global Scenery DSF in tmp dir")
-    try:
-        shutil.copy(global_scenery_dsf, tmp_file)
-    except:
-        UI.lvprint(
-            0,
-            "     ERROR: could not copy it. Disk full, write permissions,",
-            " erased tmp dir ?",
-        )
+    tmp_file = OVL.unpacked_copy(global_scenery_dsf, lat, lon)
+    if not tmp_file:
         return (b"", b"")
-
-    f = open(tmp_file, "rb")
-    dsfid = f.read(2).decode("ascii")
-    f.close()
-    if dsfid == "7z":
-        UI.vprint(2, "     The original DSF is a 7z archive, uncompressing...")
-        os.replace(tmp_file, tmp_file + ".7z")
-        if not OVL.extract_7z(tmp_file + ".7z", FNAMES.Tmp_dir):
-            os.remove(tmp_file + ".7z")
-            return (b"", b"")
-        os.remove(tmp_file + '.7z')
     file_len = os.path.getsize(tmp_file)
     f = open(tmp_file, "rb")
     # read filetype cookie

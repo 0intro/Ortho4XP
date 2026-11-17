@@ -82,6 +82,45 @@ def extract_7z(archive, dest):
     return 1
 
 ################################################################################
+def global_scenery_dsf(lat, lon):
+    # The path of the DSF of the tile in the Global Scenery.
+    return os.path.join(
+        custom_overlay_src,
+        "Earth nav data",
+        FNAMES.long_latlon(lat, lon) + ".dsf",
+    )
+
+
+################################################################################
+def unpacked_copy(dsf, lat, lon):
+    # Copies dsf into tmp and unpacks it when it is a 7z archive, as
+    # X-Plane 12 ships them. Returns the path of the copy, or None after
+    # a message.
+    copy = os.path.join(FNAMES.Tmp_dir, FNAMES.short_latlon(lat, lon) + ".dsf")
+    UI.vprint(1, "-> Making a copy of", dsf, "in tmp dir")
+    try:
+        shutil.copy(dsf, copy)
+    except OSError as e:
+        UI.lvprint(0, "   ERROR: could not copy", dsf, "to tmp:", e)
+        return None
+    with open(copy, "rb") as f:
+        packed = f.read(2) == b"7z"
+    if packed:
+        UI.vprint(1, "-> The DSF is a 7z archive, uncompressing...")
+        os.replace(copy, copy + ".7z")
+        unpacked = extract_7z(copy + ".7z", FNAMES.Tmp_dir)
+        os.remove(copy + ".7z")
+        if not unpacked:
+            # 7-Zip writes what it extracted even when its CRC fails.
+            try:
+                os.remove(copy)
+            except FileNotFoundError:
+                pass
+            return None
+    return copy
+
+
+################################################################################
 def build_overlay(lat, lon):
     if UI.is_working:
         return 0
@@ -94,11 +133,7 @@ def build_overlay(lat, lon):
         + FNAMES.short_latlon(lat, lon)
         + " : \n--------\n",
     )
-    file_to_sniff = os.path.join(
-        custom_overlay_src,
-        "Earth nav data",
-        FNAMES.long_latlon(lat, lon) + ".dsf",
-    )
+    file_to_sniff = global_scenery_dsf(lat, lon)
     if not os.path.exists(file_to_sniff):
         UI.exit_message_and_bottom_line(
             "   ERROR: file ",
@@ -107,31 +142,10 @@ def build_overlay(lat, lon):
             "in the config window first.",
         )
         return 0
-    file_to_sniff_loc = os.path.join(
-        FNAMES.Tmp_dir, FNAMES.short_latlon(lat, lon) + ".dsf"
-    )
-    UI.vprint(1, "-> Making a copy of the original overlay DSF in tmp dir")
-    try:
-        shutil.copy(file_to_sniff, file_to_sniff_loc)
-    except:
-        UI.exit_message_and_bottom_line(
-            "   ERROR: could not copy it. Disk full, write permissions, erased",
-            " tmp dir ?"
-        )
+    file_to_sniff_loc = unpacked_copy(file_to_sniff, lat, lon)
+    if not file_to_sniff_loc:
+        UI.exit_message_and_bottom_line("")
         return 0
-    f = open(file_to_sniff_loc, "rb")
-    dsfid = f.read(2).decode("ascii")
-    f.close()
-    if dsfid == "7z":
-        UI.vprint(1, "-> The original DSF is a 7z archive, uncompressing...")
-        os.replace(file_to_sniff_loc, file_to_sniff_loc + ".7z")
-        if not extract_7z(file_to_sniff_loc + ".7z", FNAMES.Tmp_dir):
-            os.remove(file_to_sniff_loc + ".7z")
-            UI.exit_message_and_bottom_line(
-                "   ERROR: 7z could not uncompress the DSF."
-            )
-            return 0
-        os.remove(file_to_sniff_loc + ".7z")
     UI.vprint(1, "-> Converting the copy to text format")
     dsfconvertcmd = [
         dsftool_cmd.strip(),
