@@ -74,6 +74,9 @@ class Vector_Map:
         self.next_edge_id = 1
         self.holes = []
         self.seeds = {}
+        # the polygons of the sea and of inland water, in the coordinates
+        # of the nodes
+        self.water = []
 
     def insert_node(self, x, y, z):
         if (x, y) in self.dico_nodes:
@@ -315,7 +318,10 @@ class Vector_Map:
         simplify=False,
         refine=False,
         cut=True,
+        encoded=None,
     ):
+        # Encodes the polygons of multipol, cut to the tile, simplified,
+        # and above area_limit, and appends them to the list encoded.
         UI.progress_bar(1, 0)
         if isinstance(multipol, dict):
             iterloop = multipol.values()
@@ -339,6 +345,8 @@ class Vector_Map:
                     )  # important for certain pol_to_alt instances
                 except:
                     continue
+                if encoded is not None:
+                    encoded.append(polygon)
                 way = numpy.array(polygon.exterior.coords)
                 if refine:
                     way = refine_way(way, refine)
