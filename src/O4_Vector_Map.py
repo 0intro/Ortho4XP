@@ -2,6 +2,7 @@ import os
 import time
 from math import pi, sin, cos, sqrt, atan, exp
 import numpy
+import shapely
 from shapely import geometry, ops
 
 # from PIL import Image, ImageDraw, ImageFilter
@@ -12,6 +13,7 @@ import O4_Vector_Utils as VECT
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
 import O4_Airport_Utils as APT
+import O4_Bathymetry as BATHY
 
 good_imagery_list = ()
 
@@ -156,6 +158,11 @@ def build_poly_file(tile):
         gluing_network, tile.dem.alt_vec, "DUMMY", check=True, skip_cut=True
     )
 
+    if UI.red_flag:
+        UI.exit_message_and_bottom_line()
+        return 0
+
+    include_water_points(vector_map, tile, apt_area)
     if UI.red_flag:
         UI.exit_message_and_bottom_line()
         return 0
@@ -595,6 +602,59 @@ def include_water(vector_map, tile):
             encoded=vector_map.water,
         )
     return 1
+
+
+################################################################################
+def include_water_points(vector_map, tile, apt_area):
+    # Inserts free nodes in the water, densest near the shore, where Step 3
+    # varies the floor and the fetch, as Laminar's CopyWetPointsWithSDF
+    # (MeshAlgs.cpp) does: the posts of 1/1200 of a degree inside the
+    # water whose column and row from the south west corner of the tile
+    # are multiples of 2, 4, 8, 16, or 32 as the distance to land of the
+    # cell south west of the post grows, and of 40 (LOW_RES_WATER_INTERVAL)
+    # beyond 32 cells. The posts of airports and patches, and those within
+    # half a post of an edge, stay out.
+    if not vector_map.water:
+        return
+    water = ops.unary_union(vector_map.water).intersection(
+        geometry.box(0, 0, 1, 1)
+    )
+    if water.is_empty:
+        return
+    UI.vprint(0, "-> Inserting water points near the shore")
+    n = BATHY.step
+    centres = (numpy.arange(n) + 0.5) / n
+    cells = shapely.contains_xy(water, *numpy.meshgrid(centres, centres))
+    d = BATHY.distance(cells)
+    (j, i) = numpy.mgrid[2:n:2, 2:n:2]
+    dist = d[j - 1, i - 1]
+    skip = numpy.select(
+        [dist <= 2, dist <= 4, dist <= 8, dist <= 16, dist <= 32],
+        [2, 4, 8, 16, 32],
+        40,
+    )
+    keep = (i % skip == 0) & (j % skip == 0)
+    (x, y) = (i[keep] / n, j[keep] / n)
+    keep = shapely.contains_xy(water, x, y) & ~shapely.intersects_xy(
+        apt_area, x, y
+    )
+    (x, y) = (x[keep], y[keep])
+    ends = numpy.array(
+        [
+            vector_map.nodes_dico[a] + vector_map.nodes_dico[b]
+            for (a, b) in vector_map.edges_dico.values()
+        ]
+    ).reshape(-1, 2, 2)
+    near = shapely.STRtree(shapely.linestrings(ends)).query(
+        shapely.points(x, y), predicate="dwithin", distance=0.5 / n
+    )[0]
+    keep = numpy.ones(len(x), dtype=bool)
+    keep[near] = False
+    (x, y) = (x[keep], y[keep])
+    z = tile.dem.alt_vec(numpy.column_stack((x, y)))
+    for (xp, yp, zp) in zip(x.tolist(), y.tolist(), z.tolist()):
+        vector_map.insert_node(xp, yp, zp)
+    UI.vprint(1, "   Number of water points:", len(x))
 
 
 ################################################################################
