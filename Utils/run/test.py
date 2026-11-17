@@ -693,6 +693,36 @@ subprocess.run([OVL.seven_zip(), "a", os.path.join(gs, "+45+005.7z"), dsf], stdo
 os.replace(os.path.join(gs, "+45+005.7z"), os.path.join(dsf_dir, "+45+005.dsf"))
 """
 
+# Triangle4XP runs at each minimum angle in turn until one succeeds.
+# run_triangle4xp returns the angle that worked, or None when every run
+# fails, or when a stop comes during a run that fails.
+triangle4xp_code = """
+import io
+import O4_Mesh_Utils as MESH
+import O4_UI_Utils as UI
+runs = []
+class Popen:
+    def __init__(self, cmd, **kwargs):
+        runs.append(cmd[1])
+        self.stdout = io.BytesIO(b"Triangle4XP\\n")
+    def wait(self):
+        UI.red_flag = stop
+        return 0 if runs[-1] in good else 1
+MESH.subprocess.Popen = Popen
+tests = [
+    ([10, 0], {"-pq10uY"}, False, 10, ["-pq10uY"]),
+    ([10, 0], {"-pq0uY"}, False, 0, ["-pq10uY", "-pq0uY"]),
+    ([10, 0], set(), False, None, ["-pq10uY", "-pq0uY"]),
+    ([10], {"-pq0uY"}, False, None, ["-pq10uY"]),
+    ([10, 0], {"-pq0uY"}, True, None, ["-pq10uY"]),
+]
+for (angles, good, stop, want, want_runs) in tests:
+    runs.clear()
+    got = MESH.run_triangle4xp(["Triangle4XP", "", "x.poly"], angles, "uY")
+    if got != want or runs != want_runs:
+        sys.exit("run_triangle4xp at " + str(angles) + " with " + str(sorted(good)) + " succeeding" + (" and a stop" if stop else "") + ": " + str(got) + " after " + str(runs) + ", want " + str(want) + " after " + str(want_runs))
+"""
+
 # The water points of Step 1, in posts from the south west corner of the
 # tile: the sea south west of i + j = 299.9, a lake from 600.25 to 640.25
 # east and 600.25 to 630.25 north, an airport over the sea, and the edges
@@ -1948,6 +1978,7 @@ def test_tile(work, top, errors):
     errors += check("globalscenery", global_scenery_code, [gs], work, top, os.path.join(work, "Ortho4XP.log"))
     errors += check("rasters", rasters_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
     errors += check("waterpoints", water_points_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
+    errors += check("triangle4xp", triangle4xp_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
     if errors:
         return errors
 
