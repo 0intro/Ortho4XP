@@ -445,6 +445,7 @@ def include_sea(vector_map, tile):
             UI.vprint(
                 1, "      Found ", len(sea_area.geoms), "contiguous patch(es)."
             )
+        vector_map.water.extend(sea_area.geoms)
         for polygon in sea_area.geoms:
             seed = numpy.array(polygon.representative_point().coords[0])
             if "SEA" in vector_map.seeds:
@@ -561,6 +562,7 @@ def include_water(vector_map, tile):
             2, "      Number of water Multipolygons : " + str(len(dico_water))
         )
         UI.vprint(1, "      Encoding it.")
+        vector_map.water.extend(dico_water.values())
         vector_map.encode_MultiPolygon(
             dico_water,
             tile.dem.alt_vec,
@@ -583,6 +585,7 @@ def include_water(vector_map, tile):
             2, "      Number of water Multipolygons : " + str(len(dico_water))
         )
         UI.vprint(1, "      Encoding them.")
+        vector_map.water.extend(dico_water.values())
         vector_map.encode_MultiPolygon(
             dico_water,
             tile.dem.alt_vec,

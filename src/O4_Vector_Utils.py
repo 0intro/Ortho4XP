@@ -74,6 +74,9 @@ class Vector_Map:
         self.next_edge_id = 1
         self.holes = []
         self.seeds = {}
+        # the polygons of the sea and of inland water, in the coordinates
+        # of the nodes
+        self.water = []
 
     def insert_node(self, x, y, z):
         if (x, y) in self.dico_nodes:
