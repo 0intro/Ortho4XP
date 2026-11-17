@@ -99,12 +99,12 @@ def global_scenery_dsf(lat, lon):
 
 
 ################################################################################
-def unpacked_copy(dsf, lat, lon):
+def unpacked_copy(dsf, lat, lon, level=1):
     # Copies dsf into tmp and unpacks it when it is a 7z archive, as
-    # X-Plane 12 ships them. Returns the path of the copy, or None after
-    # a message.
+    # X-Plane 12 ships them, with notes at verbosity level. Returns the
+    # path of the copy, or None after a message.
     copy = os.path.join(FNAMES.Tmp_dir, FNAMES.short_latlon(lat, lon) + ".dsf")
-    UI.vprint(1, "-> Making a copy of", dsf, "in tmp dir")
+    UI.vprint(level, "-> Making a copy of", dsf, "in tmp dir")
     try:
         shutil.copy(dsf, copy)
     except OSError as e:
@@ -113,7 +113,7 @@ def unpacked_copy(dsf, lat, lon):
     with open(copy, "rb") as f:
         packed = f.read(2) == b"7z"
     if packed:
-        UI.vprint(1, "-> The DSF is a 7z archive, uncompressing...")
+        UI.vprint(level, "-> The DSF is a 7z archive, uncompressing...")
         os.replace(copy, copy + ".7z")
         unpacked = extract_7z(copy + ".7z", FNAMES.Tmp_dir)
         os.remove(copy + ".7z")

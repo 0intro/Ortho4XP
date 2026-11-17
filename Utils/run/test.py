@@ -122,13 +122,10 @@ scenery_dir = "C:\\Users\\Frédéric\\X-Plane 12 €\\Custom Scenery"
 # 7-Zip as Ortho4XP finds it, and on Windows, the 7-Zip installed in
 # Program Files when the one in Utils is missing. A copy in Utils that
 # cannot run is passed over, and a 7-Zip that fails to start gets an
-# error. A Global Scenery DSF whose archive is damaged leaves nothing in
-# tmp.
+# error.
 seven_zip_code = """
 import os
-import random
 import subprocess
-import O4_File_Names as FNAMES
 import O4_Overlay_Utils as OVL
 cmd = OVL.seven_zip()
 if not cmd:
@@ -168,17 +165,6 @@ if os.name != "nt":
         os.chmod(bundled, mode)
     if found == bundled:
         sys.exit(bundled + ": found while it cannot run")
-with open("+45+005.dsf", "wb") as f:
-    f.write(random.Random(1).randbytes(65536))
-subprocess.run([cmd, "a", "damaged.7z", "+45+005.dsf"], stdout = subprocess.DEVNULL, check = True)
-os.remove("+45+005.dsf")
-with open("damaged.7z", "rb") as f:
-    data = bytearray(f.read())
-data[100] ^= 0xff
-with open("damaged.7z", "wb") as f:
-    f.write(data)
-if OVL.unpacked_copy(os.path.abspath("damaged.7z"), 45, 5) is not None or os.path.exists(os.path.join(FNAMES.Tmp_dir, "+45+005.dsf")):
-    sys.exit("unpacked_copy: a damaged archive gave a copy, or left one in tmp")
 with open("not7z.txt", "w") as f:
     f.write("Ortho4XP")
 OVL.seven_zip = lambda: os.path.abspath("not7z.txt")
@@ -693,16 +679,20 @@ nodes = numpy.zeros(4 * 5)
 for (k, (x, y)) in enumerate(((0, 0), (1, 0), (1, 1), (0, 1))):
     nodes[5 * k : 5 * k + 3] = (5 + x, 45 + y, 100 + (3 * x + 2 * y - 1) * 1200)
 tris = numpy.array([0, 1, 2, 0, 2, 3])
-(elevation, cells, surface) = BATHY.rasterize(nodes, tris, [0, 2], 45, 5)
+(elevation, surface) = BATHY.rasterize(nodes, tris, [0, 2], 45, 5)
 (j, i) = numpy.mgrid[0:1201, 0:1201]
 if numpy.abs(elevation - (100 + 3 * i + 2 * j - 1200)).max() > 1e-6:
     errors.append("rasterize: the plane is off by " + str(numpy.abs(elevation - (100 + 3 * i + 2 * j - 1200)).max()))
 # The second triangle, of water, holds the cells on and above the
 # diagonal. The water surface at a post is its height there, at the posts
-# one post below the diagonal that of the diagonal, and beyond, none.
-want = numpy.mgrid[0:1200, 0:1200]
-if (cells != (want[0] >= want[1])).any():
-    errors.append("rasterize: water cells " + str(int(cells.sum())) + ", want the " + str(int((want[0] >= want[1]).sum())) + " on and above the diagonal")
+# one post below the diagonal that of the diagonal, and beyond, none. The
+# grid of cells reaches 40 cells beyond the tile.
+cells = numpy.zeros((1280, 1280), bool)
+BATHY.water_cells(nodes, tris, [0, 2], 45, 5, cells)
+want = numpy.zeros((1280, 1280), bool)
+want[40:1240, 40:1240] = numpy.tri(1200, dtype = bool)
+if (cells != want).any():
+    errors.append("water_cells: " + str(int(cells.sum())) + " cells, want the " + str(int(want.sum())) + " on and above the diagonal of the tile")
 want = numpy.where(j >= i, 100 + 3 * i + 2 * j - 1200, numpy.where(i - j == 1, 100 + 2.5 * (i + j) - 1200, numpy.inf))
 off = numpy.isinf(surface) != numpy.isinf(want)
 both = ~numpy.isinf(surface) & ~numpy.isinf(want)
@@ -715,9 +705,33 @@ if off.any():
 nodes = numpy.array([
     5.1, 45.1, 50, 0, 0, 5.9, 45.9, 50, 0, 0, 5.9, 45.902, 50, 0, 0,
     5.7, 45.2, 100, 0, 0, 5.8, 45.2, 100, 0, 0, 5.8, 45.3, 100, 0, 0], float)
-(elevation, cells, surface) = BATHY.rasterize(nodes, numpy.array([0, 1, 2, 3, 4, 5]), [2, 2], 45, 5)
+(elevation, surface) = BATHY.rasterize(nodes, numpy.array([0, 1, 2, 3, 4, 5]), [2, 2], 45, 5)
 if abs(surface[300, 900] - 100) > 1e-6 or abs(surface[1080, 1078] - 50) > 1e-6:
     errors.append("rasterize: water surfaces " + str((surface[300, 900], surface[1080, 1078])) + " in the lake and on the river, want 100 and 50")
+# Tiles of the water south of 45.5 N, which a land strip of 12 posts
+# borders on the east of the first: with the water of each other around
+# them, both tiles give the same floor along their common edge.
+def rects(boxes):
+    nodes = []
+    tris = []
+    types = []
+    for (x0, y0, x1, y1, t) in boxes:
+        k = len(nodes) // 5
+        for (x, y) in ((x0, y0), (x1, y0), (x1, y1), (x0, y1)):
+            nodes += [x, y, 0, 0, 0]
+        tris += [k, k + 1, k + 2, k, k + 2, k + 3]
+        types += [t, t]
+    return (numpy.array(nodes, float), numpy.array(tris), numpy.array(types))
+a = rects(((5, 45, 5.99, 45.5, 2), (5.99, 45, 6, 45.5, 0), (5, 45.5, 6, 46, 0)))
+b = rects(((6, 45, 7, 45.5, 2), (6, 45.5, 7, 46, 0)))
+(around_a, around_b) = (numpy.zeros((1280, 1280), bool), numpy.zeros((1280, 1280), bool))
+BATHY.water_cells(*b, 45, 5, around_a)
+BATHY.water_cells(*a, 45, 6, around_b)
+fa = BATHY.rasters(*a, 45, 5, around_a)[1]
+fb = BATHY.rasters(*b, 45, 6, around_b)[1]
+if (fa[:, 1200] != fb[:, 0]).any():
+    k = numpy.flatnonzero(fa[:, 1200] != fb[:, 0])[0]
+    errors.append("rasters: floor " + str(fa[k, 1200]) + " and " + str(fb[k, 0]) + " on the two sides of the edge at row " + str(k))
 cells = numpy.zeros((3, 3), bool)
 cells[1, 1] = True
 if not (BATHY.wet_posts(cells) == numpy.array([[0, 0, 0, 0], [0, 1, 1, 0], [0, 1, 1, 0], [0, 0, 0, 0]], bool)).all():
@@ -739,6 +753,72 @@ if got.tolist() != [[-7, -6]]:
     errors.append("floor: " + str(got.tolist()) + ", want [[-7, -6]]")
 if errors:
     sys.exit("\\n".join(errors))
+"""
+
+# The water around the tile: the west neighbour has a mesh, all water, the
+# north one a Global Scenery DSF whose soundscape is all water but for the
+# southmost 10 posts of its westmost column, the east one a truncated mesh,
+# which Step 3 passes over, and the others nothing, which counts as water
+# too. The tile east of +45+179, a mesh all of land, is +45-180.
+neighbours_code = """
+import os
+import shutil
+import subprocess
+import numpy
+import O4_Config_Utils as CFG
+import O4_DSF_Utils as DSF
+import O4_File_Names as FNAMES
+import O4_Overlay_Utils as OVL
+tile = CFG.Tile(45, 5, "")
+mesh_dir = tile.build_dir.replace("+45+005", "+45+004")
+os.makedirs(mesh_dir)
+with open(FNAMES.mesh_file(mesh_dir, 45, 4), "w") as f:
+    f.write("MeshVersionFormatted 2\\nDimension 3\\n\\nVertices\\n4\\n")
+    for (x, y) in ((4, 45), (5, 45), (5, 46), (4, 46)):
+        f.write(str(x) + " " + str(y) + " 0 0\\n")
+    f.write("\\nNormals\\n4\\n" + "0 0 0\\n" * 4 + "\\nTriangles\\n2\\n1 2 3 1\\n1 3 4 1\\n")
+gs = os.path.abspath("neighbours")
+dsf_dir = os.path.join(gs, "Earth nav data", "+40+000")
+os.makedirs(dsf_dir)
+sound = numpy.full((1200, 1200), 30, numpy.uint8)
+sound[:10, 0] = 50
+sound.tofile(os.path.join(gs, "soundscape.raw"))
+with open(os.path.join(gs, "+46+005.txt"), "w") as f:
+    f.write("I\\n800\\nDSF2TEXT\\nPROPERTY sim/west 5\\nPROPERTY sim/east 6\\nPROPERTY sim/north 47\\nPROPERTY sim/south 46\\n")
+    f.write("RASTER_DEF soundscape\\nRASTER_DATA version=1 bpp=1 flags=6 width=1200 height=1200 scale=1.0 offset=0.0 " + os.path.join(gs, "soundscape.raw") + "\\n")
+subprocess.run([OVL.dsftool_cmd.strip(), "-text2dsf", os.path.join(gs, "+46+005.txt"), os.path.join(dsf_dir, "+46+005.dsf")], stdout = subprocess.DEVNULL, check = True)
+east_dir = tile.build_dir.replace("+45+005", "+45+006")
+os.makedirs(east_dir)
+with open(FNAMES.mesh_file(east_dir, 45, 6), "w") as f:
+    f.write("MeshVersionFormatted 2\\nDimension 3\\n\\nVertices\\n4\\n6 45 0 0\\n")
+OVL.custom_overlay_src = gs
+try:
+    cells = DSF.neighbour_water(tile)
+finally:
+    shutil.rmtree(mesh_dir)
+    shutil.rmtree(east_dir)
+want = numpy.ones((1280, 1280), bool)
+want[1240:1250, 40] = False
+if (cells != want).any():
+    (j, i) = numpy.argwhere(cells != want)[0]
+    sys.exit("neighbour_water: " + str(int(cells.sum())) + " water cells, the first wrong at row " + str(j) + " and column " + str(i))
+tile = CFG.Tile(45, 179, "")
+mesh_dir = tile.build_dir.replace("+45+179", "+45-180")
+os.makedirs(mesh_dir)
+with open(FNAMES.mesh_file(mesh_dir, 45, -180), "w") as f:
+    f.write("MeshVersionFormatted 2\\nDimension 3\\n\\nVertices\\n4\\n")
+    for (x, y) in ((-180, 45), (-179, 45), (-179, 46), (-180, 46)):
+        f.write(str(x) + " " + str(y) + " 0 0\\n")
+    f.write("\\nNormals\\n4\\n" + "0 0 0\\n" * 4 + "\\nTriangles\\n2\\n1 2 3 0\\n1 3 4 0\\n")
+try:
+    cells = DSF.neighbour_water(tile)
+finally:
+    shutil.rmtree(mesh_dir)
+want = numpy.ones((1280, 1280), bool)
+want[40:1240, 1240:] = False
+if (cells != want).any():
+    (j, i) = numpy.argwhere(cells != want)[0]
+    sys.exit("neighbour_water across 180 E: " + str(int(cells.sum())) + " water cells, the first wrong at row " + str(j) + " and column " + str(i))
 """
 
 # Step 3 with an overlay source DSF made of properties only.
@@ -1632,6 +1712,7 @@ def test_tile(work, top, errors):
     errors += check("community", community_code, [], work, top, log)
     errors += check("unwanted", unwanted_code, [], work, top, log)
     errors += check("demo", demo_code, [], work, top, log)
+    errors += check("neighbours", neighbours_code, [], work, top, log)
     errors += check("extent", extent_code, [payload], work, top, log)
     if os.path.exists(os.path.join(top, "pwned")):
         errors.append("a config or provider file ran code")

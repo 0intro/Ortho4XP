@@ -358,11 +358,15 @@ copied_rasters = (
 )
 
 
-def global_scenery_rasters(lat, lon):
+def global_scenery_rasters(lat, lon, quiet=False):
     # The rasters of the Global Scenery DSF of the tile that Step 3 copies,
-    # as (name, DEMI payload, DEMD payload), or none after a warning.
+    # as (name, DEMI payload, DEMD payload), or none after a warning, which
+    # quiet keeps for verbosity 2.
     dsf = OVL.global_scenery_dsf(lat, lon)
     if not os.path.exists(dsf):
+        if quiet:
+            UI.vprint(2, "     No Global Scenery DSF", dsf)
+            return []
         UI.lvprint(
             1,
             "     WARNING: file",
@@ -372,7 +376,7 @@ def global_scenery_rasters(lat, lon):
             "Scenery directory.",
         )
         return []
-    copy = OVL.unpacked_copy(dsf, lat, lon)
+    copy = OVL.unpacked_copy(dsf, lat, lon, 2 if quiet else 1)
     if not copy:
         return []
     with open(copy, "rb") as f:
@@ -404,6 +408,59 @@ def global_scenery_rasters(lat, lon):
         for (name, (info, payload)) in zip(names, rasters)
         if name in copied_rasters
     ]
+
+
+def neighbour_water(tile):
+    # The water of the eight tiles around, as BATHY.water_cells marks it:
+    # from their meshes where they are built, otherwise from the
+    # soundscape of their Global Scenery DSF, in which 30 is water, and
+    # water where neither exists.
+    n = BATHY.step + 2 * BATHY.pad
+    cells = numpy.ones((n, n), dtype=bool)
+    for (dlat, dlon) in (
+        (-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)
+    ):
+        if UI.red_flag:
+            break
+        lat = tile.lat + dlat
+        if not -90 <= lat < 90:
+            continue
+        # Across 180 E, the tile beside lies 360 degrees west, as do its
+        # longitudes.
+        lon = (tile.lon + dlon + 180) % 360 - 180
+        x0 = BATHY.pad + dlon * BATHY.step
+        y0 = BATHY.pad + dlat * BATHY.step
+        (xs, xe) = (max(0, x0), min(n, x0 + BATHY.step))
+        (ys, ye) = (max(0, y0), min(n, y0 + BATHY.step))
+        build_dir = (
+            tile.build_dir
+            if tile.grouped
+            else tile.build_dir.replace(
+                FNAMES.tile_dir(tile.lat, tile.lon), FNAMES.tile_dir(lat, lon)
+            )
+        )
+        mesh = FNAMES.mesh_file(build_dir, lat, lon)
+        if os.path.isfile(mesh):
+            UI.vprint(2, "     Water of", mesh)
+            try:
+                (version, _, coords, _, idx, types) = MESH.read_mesh_file(mesh)
+            except (OSError, ValueError, IndexError) as e:
+                UI.lvprint(1, "     WARNING: could not read", mesh + ":", e)
+            else:
+                has_water = 7 if version >= 1.3 else 3
+                coords[0::5] += tile.lon + dlon - lon
+                cells[ys:ye, xs:xe] = False
+                BATHY.water_cells(
+                    coords, idx, types & has_water, tile.lat, tile.lon, cells
+                )
+                continue
+        for (name, info, payload) in global_scenery_rasters(lat, lon, True):
+            (bpp, w, h) = struct.unpack_from("<xBxxII", info)
+            if name != b"soundscape" or (bpp, w, h) != (1, BATHY.step, BATHY.step) or len(payload) != w * h:
+                continue
+            sound = numpy.frombuffer(payload, numpy.uint8).reshape(h, w) == 30
+            cells[ys:ye, xs:xe] = sound[ys - y0 : ye - y0, xs - x0 : xe - x0]
+    return cells
 
 
 def dsf_rasters(lat, lon, elevation, sea_level):
@@ -452,7 +509,8 @@ def build_dsf(tile, download_queue):
 
     UI.vprint(1, "-> Computing the elevation and sea_level rasters")
     (elevation, sea_level) = BATHY.rasters(
-        node_coords, tri_idx, tri_types, tile.lat, tile.lon
+        node_coords, tri_idx, tri_types, tile.lat, tile.lon,
+        neighbour_water(tile),
     )
 
     # 3 Recut water tris for XP12
