@@ -217,7 +217,7 @@ a particular server.",
         "module": "OVL",
         "type": str,
         "default": "",
-        "hint": "The directory containing the sceneries with the overlays you would like to extract. You need to select the level of directory just _ABOVE_ Earth nav data.",
+        "hint": "The directory containing the sceneries with the overlays you would like to extract, and the rasters that Step 3 copies, usually Global Scenery/X-Plane 12 Global Scenery. You need to select the level of directory just _ABOVE_ Earth nav data. A tile that the X-Plane 12 Demo Areas directory beside it holds comes from there, as X-Plane loads it from there.",
     },
     # Vector
     "apt_smoothing_pix": {
