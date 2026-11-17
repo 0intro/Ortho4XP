@@ -1217,6 +1217,64 @@ if subprocess.run([OVL.dsftool_cmd.strip(), "-dsf2text", dsf, "xp12.txt"], stdou
     sys.exit(dsf + ": DSFTool cannot read it")
 """
 
+# Step 3 with skip_downloads, in both water techniques: the masked sea is
+# an overlay whose BORDER_TEX is a PNG mask beside the textures, which
+# come from elsewhere, and Step 3 says so in one line. The tile config,
+# the DSF, and the textures go back as they were.
+streamer_code = """
+import contextlib
+import io
+import os
+import shutil
+import O4_Imagery_Utils as IMG
+IMG.initialize_extents_dict()
+IMG.initialize_color_filters_dict()
+IMG.initialize_providers_dict()
+IMG.initialize_combined_providers_dict()
+import O4_Config_Utils as CFG
+import O4_Tile_Utils as TILE
+tile = CFG.Tile(45, 5, "")
+tile.read_from_config()
+cfg = os.path.join(tile.build_dir, "Ortho4XP_+45+005.cfg")
+dsf = os.path.join(tile.build_dir, "Earth nav data", "+40+000", "+45+005.dsf")
+textures = os.path.join(tile.build_dir, "textures")
+terrain = os.path.join(tile.build_dir, "terrain")
+before = set(os.listdir(textures))
+shutil.copy(cfg, cfg + ".streamer")
+shutil.copy(dsf, dsf + ".streamer")
+TILE.skip_downloads = True
+errors = []
+try:
+    for tech in ("XP11 + bathy", "XP12"):
+        tile.water_tech = tech
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            built = TILE.build_tile(tile)
+        if not built:
+            errors.append(tech + ": Step 3 failed")
+            continue
+        n = out.getvalue().count("Downloads are skipped")
+        if n != 1:
+            errors.append(tech + ": " + str(n) + " lines on the skipped downloads, want 1")
+        ters = sorted(os.listdir(terrain))
+        sea = [t for t in ters if t.endswith("_sea_overlay.ter")]
+        if not sea or [t for t in ters if t.endswith("_sea.ter")]:
+            errors.append(tech + ": terrain " + str([t for t in ters if "_sea" in t]) + ", want the masked sea in overlays alone")
+        for t in sea:
+            with open(os.path.join(terrain, t)) as f:
+                border = [line.split()[1] for line in f if line.startswith("BORDER_TEX")]
+            if len(border) != 1 or not border[0].endswith(".png") or not os.path.isfile(os.path.join(terrain, border[0])):
+                errors.append(tech + ": " + t + ": BORDER_TEX " + str(border) + ", want one PNG mask beside the textures")
+                break
+finally:
+    os.replace(cfg + ".streamer", cfg)
+    os.replace(dsf + ".streamer", dsf)
+    for f in set(os.listdir(textures)) - before:
+        os.remove(os.path.join(textures, f))
+if errors:
+    sys.exit("\\n".join(errors))
+"""
+
 # Shift-click on Build Mesh: moulinette reorders the mesh, which keeps its
 # triangles, groups them per texture of the zoomlevel, and numbers the
 # vertices in their order of first use. Step 3 then builds the DSF again.
@@ -2177,6 +2235,7 @@ def test_tile(work, top, errors):
             errors += check_depth(text, dsf, ("terrain_Water",))
     xp12 = check("xp12", xp12_code, [], work, top, log)
     errors += xp12 or check_xp12(top, build)
+    errors += check("streamer", streamer_code, [], work, top, log)
     errors += check("overlay", overlay_code, [gs], work, top, log)
     errors += check("norasters", no_rasters_code, [os.path.join(work, "Global Scenery 11")], work, top, log)
     errors += check("badoverlay", bad_overlay_code, [os.path.join(work, "Global Scenery bad")], work, top, log)

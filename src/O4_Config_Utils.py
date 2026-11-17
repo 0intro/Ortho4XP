@@ -157,7 +157,7 @@ a particular server.",
         "module": "TILE",
         "type": bool,
         "default": False,
-        "hint": "Will only build the DSF and TER files but not the textures (neither download nor convert). This could be useful in cases where imagery cannot be shared.",
+        "hint": "Will only build the DSF and TER files but not the textures (neither download nor convert). This could be useful in cases where imagery cannot be shared. The masks of the water then go to PNG files beside the textures, whatever imprint_masks_to_dds holds.",
     },
     "skip_converts": {
         "module": "TILE",
@@ -571,8 +571,9 @@ class Tile:
     @property
     def imprint(self):
         # Whether the masks of the water go into the alpha channel of the
-        # DDS textures, rather than into PNG files beside them.
-        return self.imprint_masks_to_dds
+        # DDS textures, rather than into PNG files beside them, which the
+        # textures need when they come from elsewhere.
+        return self.imprint_masks_to_dds and not TILE.skip_downloads
 
     def make_dirs(self):
         if os.path.isdir(self.build_dir):
