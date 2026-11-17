@@ -611,6 +611,21 @@ def build_dsf(tile, download_queue):
     node_icoords[4::5] = numpy.round(
         (1 - tile.normal_map_strength * node_coords[4::5]) / 2 * 65535
     )
+    # The fetch of each node, at its position as the pools store it, where
+    # X-Plane reads it.
+    pool_of_node = numpy.zeros(nbr_nodes, dtype=numpy.int64)
+    pool_of_node[numpy.fromiter(idx_node_to_idx_pool.keys(), numpy.int64)] = (
+        numpy.fromiter(idx_node_to_idx_pool.values(), numpy.int64)
+    )
+    origin = numpy.array([pool_param[k][:4] for k in range(pool_nbr)])[pool_of_node]
+    node_fetch = numpy.round(65535 * BATHY.fetch(
+        elevation,
+        sea_level,
+        origin[:, 1] + node_icoords[0::5] / 65535 * origin[:, 0],
+        origin[:, 3] + node_icoords[1::5] / 65535 * origin[:, 2],
+        tile.lat,
+        tile.lon,
+    )).astype(int)
     node_icoords = array.array("H", node_icoords)
 
     
@@ -832,11 +847,9 @@ def build_dsf(tile, download_queue):
                         dsf_pools[idx_dsfpool].extend(
                             node_icoords[5 * n : 5 * n + 5]
                         )
-                        # TODO (improve fetch values)
-                        ratio_fetch = 1
                         depth = 0 if node_is_coast[n] else 65535
                         dsf_pools[idx_dsfpool].extend(
-                            (int(65535 * ratio_fetch), depth,
+                            (node_fetch[n], depth,
                              int(round(s * 65535)), int(round(t * 65535)))
                         )
                     len_textured_nodes += 1
@@ -879,11 +892,8 @@ def build_dsf(tile, download_queue):
                         node_icoords[5 * n : 5 * n + 3]
                     )
                     dsf_pools[idx_dsfpool].extend((32768, 32768))
-                    # TODO improve bathy and fetch ratio variety
-                    ratio_fetch = 1
                     depth = 0 if node_is_coast[n] else 65535
-                    dsf_pools[idx_dsfpool].extend((int(65535 * ratio_fetch),
-                                                   depth))
+                    dsf_pools[idx_dsfpool].extend((node_fetch[n], depth))
                     dsf_pool_length[idx_dsfpool] += 1
                 tri_p.extend((idx_dsfpool, pos_in_pool))
             if tri_p[0] == tri_p[2] == tri_p[4]:
@@ -1047,10 +1057,8 @@ def build_dsf(tile, download_queue):
                         node_icoords[5 * n : 5 * n + 3]
                     )
                     dsf_pools[idx_dsfpool].extend((32768, 32768))
-                    ratio_fetch = 1
                     depth = 0 if node_is_coast[n] else 65535
-                    dsf_pools[idx_dsfpool].extend((int(65535 * ratio_fetch),
-                                                   depth))
+                    dsf_pools[idx_dsfpool].extend((node_fetch[n], depth))
                     dsf_pool_length[idx_dsfpool] += 1
                 tri_p.extend((idx_dsfpool, pos_in_pool))
             if tri_p[0] == tri_p[2] == tri_p[4]:

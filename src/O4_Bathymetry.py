@@ -369,3 +369,30 @@ def rasters(node_coords, tri_idx, tri_types, lat, lon, around=None):
     water_cells(node_coords, tri_idx, tri_types, lat, lon, cells)
     d = distance(wet_posts(cells))[pad : pad + posts, pad : pad + posts]
     return (elevation, floor(elevation, d, surface))
+
+
+def sample(r, x, y):
+    # r at the points (x, y), in posts, bilinearly, clamped to the grid.
+    (h, w) = r.shape
+    x = numpy.clip(x, 0, w - 1)
+    y = numpy.clip(y, 0, h - 1)
+    i = numpy.minimum(numpy.floor(x).astype(numpy.int64), w - 2)
+    j = numpy.minimum(numpy.floor(y).astype(numpy.int64), h - 2)
+    (fx, fy) = (x - i, y - j)
+    r = r.astype(float)
+    return (
+        r[j, i] * (1 - fx) * (1 - fy)
+        + r[j, i + 1] * fx * (1 - fy)
+        + r[j + 1, i] * (1 - fx) * fy
+        + r[j + 1, i + 1] * fx * fy
+    )
+
+
+def fetch(elevation, sea_level, lon, lat, tile_lat, tile_lon):
+    # The fetch of the water at each point, which scales its waves: the
+    # depth of the floor over 50 m, between 0 and 1, as Laminar's
+    # GetWaterBlend (DSFBuilder.cpp) computes it from the rasters.
+    x = (lon - tile_lon) * step
+    y = (lat - tile_lat) * step
+    depth = sample(elevation, x, y) - sample(sea_level, x, y)
+    return numpy.clip(depth / 50, 0, 1)

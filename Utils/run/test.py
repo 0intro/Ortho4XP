@@ -979,10 +979,8 @@ if not MESH.sort_mesh(tile):
     sys.exit("sort_mesh failed in " + repr(name))
 """
 
-# Step 3 again with water_tech XP12: the masked sea becomes physical
-# WATER_COLOR_MASK terrain, whose vertices carry fetch, depth, and the
-# texture coordinates after their normals, while the lake, below mask_zl,
-# keeps its overlay. The tile config goes back as it was.
+# Step 3 again with water_tech XP12, whose DSF goes to xp12.txt in text.
+# The tile config goes back as it was.
 xp12_code = """
 import os
 import shutil
@@ -995,26 +993,6 @@ IMG.initialize_combined_providers_dict()
 import O4_Config_Utils as CFG
 import O4_Overlay_Utils as OVL
 import O4_Tile_Utils as TILE
-
-# The patches of the DSF that DSFTool prints in text, by terrain, as
-# (near, far, flags, depth, vertices).
-def patches(text):
-    terrains = []
-    out = {}
-    with open(text, encoding = "latin-1") as f:
-        for line in f:
-            w = line.split()
-            if not w:
-                continue
-            if w[0] == "TERRAIN_DEF":
-                terrains.append(w[1])
-            elif w[0] == "BEGIN_PATCH":
-                patch = (float(w[2]), float(w[3]), int(w[4]), int(w[5]), [])
-                out.setdefault(terrains[int(w[1])], []).append(patch)
-            elif w[0] == "PATCH_VERTEX":
-                patch[4].append([float(x) for x in w[1:]])
-    return out
-
 tile = CFG.Tile(45, 5, "")
 tile.read_from_config()
 cfg = os.path.join(tile.build_dir, "Ortho4XP_+45+005.cfg")
@@ -1026,37 +1004,9 @@ finally:
     os.replace(cfg + ".xp12", cfg)
 if not built:
     sys.exit("Step 3 failed")
-terrain = os.path.join(tile.build_dir, "terrain")
-ters = sorted(os.listdir(terrain))
-errors = []
-sea = [t for t in ters if t.endswith("_sea.ter")]
-if not sea:
-    errors.append("no _sea.ter, want the masked sea as WATER_COLOR_MASK terrain")
-for t in sea:
-    with open(os.path.join(terrain, t)) as f:
-        lines = f.read().split("\\n")
-    if "WATER_COLOR_MASK" not in lines or any(l.startswith("BORDER_TEX") for l in lines):
-        errors.append(t + ": " + repr(lines) + ", want WATER_COLOR_MASK and no BORDER_TEX")
-if [t for t in ters if t.endswith("_sea_overlay.ter")]:
-    errors.append("a _sea_overlay.ter, want none with the masks in the textures")
-if not [t for t in ters if t.endswith("_water_overlay.ter")]:
-    errors.append("no _water_overlay.ter for the lake")
 dsf = os.path.join(tile.build_dir, "Earth nav data", "+40+000", "+45+005.dsf")
 if subprocess.run([OVL.dsftool_cmd.strip(), "-dsf2text", dsf, "xp12.txt"], stdout = subprocess.DEVNULL).returncode:
     sys.exit(dsf + ": DSFTool cannot read it")
-for (name, ps) in patches("xp12.txt").items():
-    if name.endswith("_sea.ter"):
-        want = (1, 9)
-    elif name == "terrain_Water":
-        want = (1, 7)
-    else:
-        continue
-    for (near, far, flags, depth, vertices) in ps:
-        if (flags, depth) != want or far != -1:
-            errors.append(name + ": a patch with flags " + str(flags) + ", depth " + str(depth) + ", and far LOD " + str(far) + ", want " + str(want) + " and -1")
-            break
-if errors:
-    sys.exit("\\n".join(errors))
 """
 
 # Shift-click on Build Mesh: moulinette reorders the mesh, which keeps its
@@ -1661,6 +1611,87 @@ def check(name, code, args, work, top, log, timeout = 300):
         return []
     return [name + ": " + line for line in err.splitlines() if line.strip()] or [name + ": exit status " + str(status) + ", see " + log]
 
+# The patches of a DSF that DSFTool printed in text, by terrain, as
+# (near, far, flags, depth, vertices).
+def dsf_patches(text):
+    terrains = []
+    out = {}
+    with open(text, encoding = "latin-1") as f:
+        for line in f:
+            w = line.split()
+            if not w:
+                continue
+            if w[0] == "TERRAIN_DEF":
+                terrains.append(w[1])
+            elif w[0] == "BEGIN_PATCH":
+                patch = (float(w[2]), float(w[3]), int(w[4]), int(w[5]), [])
+                out.setdefault(terrains[int(w[1])], []).append(patch)
+            elif w[0] == "PATCH_VERTEX":
+                patch[4].append([float(x) for x in w[1:]])
+    return out
+
+# r, of 1201 by 1201 posts from the south west corner of the tile, at lon,
+# lat, by bilinear interpolation.
+def bilinear(r, lon_, lat_):
+    (x, y) = ((lon_ - lon) * 1200, (lat_ - lat) * 1200)
+    (i, j) = (min(int(x), 1199), min(int(y), 1199))
+    (fx, fy) = (x - i, y - j)
+    return ((1 - fx) * (1 - fy) * r[j, i] + fx * (1 - fy) * r[j, i + 1]
+        + (1 - fx) * fy * r[j + 1, i] + fx * fy * r[j + 1, i + 1])
+
+# The fetch of water vertices, the plane after their normals, is the depth
+# of the floor over 50 m, between 0 and 1, from the rasters of the DSF.
+def check_fetch(text, patches, names):
+    e = numpy.fromfile(text + ".elevation.raw", "<i2").astype(float).reshape(1201, 1201)
+    f = numpy.fromfile(text + ".sea_level.raw", "<i2").astype(float).reshape(1201, 1201)
+    count = 0
+    for (name, ps) in patches.items():
+        if not any(name.endswith(n) for n in names):
+            continue
+        for (near, far, flags, depth, vertices) in ps:
+            for v in vertices:
+                want = min(max((bilinear(e, v[0], v[1]) - bilinear(f, v[0], v[1])) / 50, 0), 1)
+                count += 1
+                if abs(v[5] - want) > 2e-5:
+                    return [text + ": " + name + ": fetch " + str(v[5]) + " at " + str(v[:2]) + ", want " + str(round(want, 6))]
+    if not count:
+        return [text + ": no vertices of " + str(names)]
+    return []
+
+# The water of the XP12 rerun: the masked sea is physical WATER_COLOR_MASK
+# terrain, whose vertices carry fetch, depth, and the texture coordinates
+# after their normals, while the lake, below mask_zl, keeps its overlay.
+def check_xp12(top, build):
+    errors = []
+    terrain = os.path.join(build, "terrain")
+    ters = sorted(os.listdir(terrain))
+    sea = [t for t in ters if t.endswith("_sea.ter")]
+    if not sea:
+        errors.append("xp12: no _sea.ter, want the masked sea as WATER_COLOR_MASK terrain")
+    for t in sea:
+        with open(os.path.join(terrain, t)) as f:
+            lines = f.read().split("\n")
+        if "WATER_COLOR_MASK" not in lines or any(l.startswith("BORDER_TEX") for l in lines):
+            errors.append("xp12: " + t + ": " + repr(lines) + ", want WATER_COLOR_MASK and no BORDER_TEX")
+    if [t for t in ters if t.endswith("_sea_overlay.ter")]:
+        errors.append("xp12: a _sea_overlay.ter, want none with the masks in the textures")
+    if not [t for t in ters if t.endswith("_water_overlay.ter")]:
+        errors.append("xp12: no _water_overlay.ter for the lake")
+    text = os.path.join(top, "xp12.txt")
+    patches = dsf_patches(text)
+    for (name, ps) in patches.items():
+        if name.endswith("_sea.ter"):
+            want = (1, 9)
+        elif name == "terrain_Water":
+            want = (1, 7)
+        else:
+            continue
+        for (near, far, flags, depth, vertices) in ps:
+            if (flags, depth) != want or far != -1:
+                errors.append("xp12: " + name + ": a patch with flags " + str(flags) + ", depth " + str(depth) + ", and far LOD " + str(far) + ", want " + str(want) + " and -1")
+                break
+    return errors + check_fetch(text, patches, ("_sea.ter", "terrain_Water"))
+
 # The rasters of the built DSF, which DSFTool writes beside the text, as
 # text.<name>.raw: the soundscape and the seasons of the Global Scenery,
 # and the elevation and sea_level that Step 3 computes from the mesh.
@@ -1892,7 +1923,9 @@ def test_tile(work, top, errors):
             errors.append(text + ": rasters " + str(defs) + ", want elevation, sea_level, soundscape, and the eight seasons, and sim/west 5")
         else:
             errors += check_rasters(text, gs, vertices, triangles)
-    errors += check("xp12", xp12_code, [], work, top, log)
+            errors += check_fetch(text, dsf_patches(text), ("terrain_Water",))
+    xp12 = check("xp12", xp12_code, [], work, top, log)
+    errors += xp12 or check_xp12(top, build)
     errors += check("overlay", overlay_code, [gs], work, top, log)
     errors += check("norasters", no_rasters_code, [os.path.join(work, "Global Scenery 11")], work, top, log)
     errors += check("badoverlay", bad_overlay_code, [os.path.join(work, "Global Scenery bad")], work, top, log)
