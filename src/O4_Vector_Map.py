@@ -445,6 +445,7 @@ def include_sea(vector_map, tile):
             UI.vprint(
                 1, "      Found ", len(sea_area.geoms), "contiguous patch(es)."
             )
+        vector_map.water.extend(sea_area.geoms)
         for polygon in sea_area.geoms:
             seed = numpy.array(polygon.representative_point().coords[0])
             if "SEA" in vector_map.seeds:
@@ -568,6 +569,7 @@ def include_water(vector_map, tile):
             area_limit=tile.min_area / 10000,
             simplify=tile.water_simplification * GEO.m_to_lat,
             check=True,
+            encoded=vector_map.water,
         )
     if not sea_equiv_area.is_empty:
         UI.vprint(
@@ -590,6 +592,7 @@ def include_water(vector_map, tile):
             area_limit=tile.min_area / 10000,
             simplify=tile.water_simplification * GEO.m_to_lat,
             check=True,
+            encoded=vector_map.water,
         )
     return 1
 
