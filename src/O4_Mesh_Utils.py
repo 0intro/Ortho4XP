@@ -1,6 +1,7 @@
 import time
 import sys
 import os
+import shutil
 import subprocess
 import numpy
 import requests
@@ -552,6 +553,119 @@ def run_triangle4xp(mesh_cmd, angles, switches):
 
 
 ################################################################################
+def water_splits(node_file, ele_file, poly_file):
+    # The points that split the water of a mesh of Triangle4XP where the
+    # floor would touch the shore, as Laminar's SPLIT_BEACHED_WATER
+    # (MeshAlgs.cpp) finds them: the centroid of each water triangle whose
+    # three vertices lie on the shore, which water and land triangles
+    # share, and the middle of each edge between two water triangles whose
+    # two ends lie on the shore. Edges that are segments of poly_file stay
+    # whole: rounding puts their middle off the segment, where the next run
+    # would split the segment again beside it, and Step 3 cuts them
+    # instead. Returns the points as rows of x, y, and the vector altitude,
+    # interpolated, and the counts of both.
+    with open(node_file) as f:
+        n = int(f.readline().split()[0])
+        nodes = numpy.loadtxt(f, max_rows=n, ndmin=2)
+    with open(ele_file) as f:
+        m = int(f.readline().split()[0])
+        ele = numpy.loadtxt(f, dtype=numpy.int64, max_rows=m, ndmin=2)
+    with open(poly_file) as f:
+        f.readline()
+        k = int(f.readline().split()[0])
+        segments = [f.readline().split()[1:3] for _ in range(k)]
+    segments = numpy.array(segments, dtype=numpy.int64).reshape(-1, 2)
+    segments = numpy.sort(segments - 1, axis=1)
+    # x, y, and the vector altitude
+    nodes = nodes[:, [1, 2, 6]]
+    tris = ele[:, 1:4] - 1
+    wet = (ele[:, 4] & 7) != 0
+    shore = numpy.zeros(n, dtype=bool)
+    shore[tris[wet].ravel()] = True
+    dry = numpy.zeros(n, dtype=bool)
+    dry[tris[~wet].ravel()] = True
+    shore &= dry
+    beached = tris[wet][shore[tris[wet]].all(axis=1)]
+    edges = numpy.sort(
+        numpy.concatenate([tris[wet][:, [k, (k + 1) % 3]] for k in range(3)]),
+        axis=1,
+    )
+    (edges, count) = numpy.unique(edges, axis=0, return_counts=True)
+    on_segment = numpy.isin(
+        edges[:, 0] * n + edges[:, 1], segments[:, 0] * n + segments[:, 1]
+    )
+    bridges = edges[(count == 2) & shore[edges].all(axis=1) & ~on_segment]
+    points = numpy.concatenate(
+        (nodes[beached].mean(axis=1), nodes[bridges].mean(axis=1))
+    )
+    return (points, len(beached), len(bridges))
+
+
+################################################################################
+def split_water(tile, mesh_cmd, angle, switches):
+    # Meshes the tile a second time, at the minimum angle that the first
+    # run of Triangle4XP achieved (angle), with the points of water_splits
+    # from that run added to the nodes of Step 1, so that every water
+    # triangle has a vertex off the shore to take the depth of the floor.
+    # switches(nodes, poly) gives the switches of a run on that many nodes,
+    # writing the output .poly when poly is true. The run takes copies of
+    # the files of Step 1 and leaves its mesh in the place of the first,
+    # which stays when it fails.
+    poly_file = FNAMES.input_poly_file(tile)
+    base = poly_file[: -len(".poly")]
+    (points, beached, bridges) = water_splits(
+        FNAMES.output_node_file(tile),
+        FNAMES.output_ele_file(tile),
+        base + ".1.poly",
+    )
+    if UI.cleaning_level:
+        os.remove(base + ".1.poly")
+    if not len(points):
+        return
+    UI.vprint(
+        1,
+        "-> Splitting",
+        beached,
+        "beached water triangles and",
+        bridges,
+        "bridges, and meshing again.",
+    )
+    split = base + ".split"
+    shutil.copy(poly_file, split + ".poly")
+    with open(FNAMES.input_node_file(tile)) as f:
+        lines = f.read().split("\n")
+    header = lines[0].split()
+    n = int(header[0])
+    lines[0] = " ".join([str(n + len(points))] + header[1:])
+    lines[1 : n + 1] = lines[1 : n + 1] + [
+        str(n + 1 + k) + " " + " ".join("{:.9f}".format(v) for v in p)
+        for (k, p) in enumerate(points)
+    ]
+    with open(split + ".node", "w") as f:
+        f.write("\n".join(lines))
+    mesh_cmd = mesh_cmd[:-1] + [split + ".poly"]
+    switch = switches(n + len(points), not UI.cleaning_level)
+    ok = run_triangle4xp(mesh_cmd, [angle], switch) is not None
+    if not ok:
+        UI.lvprint(
+            0,
+            "\nWARNING: The second run of Triangle4XP failed, so the mesh of",
+            "the first stays, and Step 3 cuts its beached water triangles",
+            "and bridges.",
+        )
+    for ext in (".node", ".ele", ".poly"):
+        out = split + ".1" + ext
+        if not os.path.exists(out):
+            continue
+        if ok:
+            os.replace(out, base + ".1" + ext)
+        else:
+            os.remove(out)
+    for f in (split + ".poly", split + ".node"):
+        os.remove(f)
+
+
+################################################################################
 def build_mesh(tile):
     if UI.is_working:
         return 0
@@ -650,7 +764,6 @@ def build_mesh(tile):
 
     timer = time.time()
     tri_verbosity = "Q" if UI.verbosity <= 1 else "V"
-    output_poly = "P" if UI.cleaning_level else ""
     do_refine = "r" if tile.iterate else "A"
     try:
         max_tris = float(tile.limit_tris) * 1e6
@@ -659,11 +772,13 @@ def build_mesh(tile):
         max_tris = 5e6
     if max_tris <= 0 or max_tris >= 5e7:
         max_tris = 5e6
-    max_steiner = max_tris / 1.9 - input_nodes
-    max_steiner = max(max_steiner, 5e5)
 
-    limit_tris = "S" + str(max_steiner)
-    tri_switches = do_refine + "uYB" + tri_verbosity + output_poly + limit_tris
+    def switches(nodes, poly):
+        steiner = max(max_tris / 1.9 - nodes, 5e5)
+        return (
+            do_refine + "uYB" + tri_verbosity + ("" if poly else "P")
+            + "S" + str(steiner)
+        )
 
     weight_array = numpy.ones((1001, 1001), dtype=numpy.float32)
     if not build_curv_tol_weight_map(tile, weight_array):
@@ -703,7 +818,10 @@ def build_mesh(tile):
     tile.dem = None
     UI.vprint(1, "-> Start of the mesh algorithm Triangle4XP.")
     angles = [tile.min_angle, 0] if tile.min_angle else [0]
-    if run_triangle4xp(mesh_cmd, angles, tri_switches) is None:
+    # split_water reads the segments of the first run.
+    poly = not UI.cleaning_level or not tile.iterate
+    angle = run_triangle4xp(mesh_cmd, angles, switches(input_nodes, poly))
+    if angle is None:
         UI.exit_message_and_bottom_line(
             "\nERROR: Triangle4XP really couldn't make it !\n\n",
             "If the reason is not due to the limited amount of ",
@@ -714,6 +832,8 @@ def build_mesh(tile):
             ".\n",
         )
         return 0
+    if not tile.iterate and not UI.red_flag:
+        split_water(tile, mesh_cmd, angle, switches)
 
     if UI.red_flag:
         UI.exit_message_and_bottom_line()

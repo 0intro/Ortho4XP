@@ -51,14 +51,25 @@ def recut_water_tris(node_coords, tri_idx, tri_types):
     node_is_coast = numpy.resize(node_is_coast, node_max_count)
 
     # Cut edges that need to : i.e. have no land bit but their 
-    # end-points are coastline.
+    # end-points are coastline, except on the tile boundary, where the
+    # neighbouring tile has no vertex in their middle.
+    def on_boundary(a, b):
+        (xa, ya) = node_coords[5 * a : 5 * a + 2]
+        (xb, yb) = node_coords[5 * b : 5 * b + 2]
+        return (xa == xb and xa == round(xa)) or (ya == yb and ya == round(ya))
+
     edge_cut = {}
     next_n = nbr_nodes
     for ((a, b), t) in edge_type.items():
         if b < a:
             # do not do twice the work we have both pairs anyway
             continue
-        if (t & 1 == 0) and node_is_coast[a] and node_is_coast[b]:
+        if (
+            (t & 1 == 0)
+            and node_is_coast[a]
+            and node_is_coast[b]
+            and not on_boundary(a, b)
+        ):
             edge_cut[(a,b)] = next_n
             edge_cut[(b,a)] = next_n
             node_coords[5 * next_n: 5 * next_n + 5] = (
@@ -87,11 +98,11 @@ def recut_water_tris(node_coords, tri_idx, tri_types):
         B = (c,a) in edge_cut
         cuts = A + B + C
         if (not cuts):
-            # We might still need to cut the tri if all its edges are coastline 
-            # Note : this is a water tri so edges surely have water bit(s)
-            if ((edge_type[(a,b)] & 1 == 0) or (edge_type[(b,c)] & 1 == 0) or 
-               (edge_type[(c,a)] & 1 == 0)):
-                   continue
+            # We might still need to cut the tri if all its vertices are
+            # coastline, its edges then being coastline or on the tile
+            # boundary.
+            if not (node_is_coast[a] and node_is_coast[b] and node_is_coast[c]):
+                continue
             # Cut the tri at its barycenter
             node_coords[5 * next_n: 5 * next_n + 5] = (
                    node_coords[5 * a: 5 * a + 5] + 
