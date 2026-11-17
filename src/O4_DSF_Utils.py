@@ -8,6 +8,7 @@ from collections import defaultdict
 import struct
 import hashlib
 import O4_Airport_Utils as APT
+import O4_DEM_Utils as DEM
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
 import O4_Imagery_Utils as IMG
@@ -530,10 +531,26 @@ def build_dsf(tile, download_queue):
                 t = 2
         tri_types[i] = t
 
+    custom = None
+    if tile.custom_bathymetry:
+        UI.vprint(1, "-> Reading the custom bathymetry", tile.custom_bathymetry)
+        try:
+            (_, x0, y0, x1, y1, _, _, _, values) = DEM.read_raster_file(
+                tile.custom_bathymetry, tile.lat, tile.lon
+            )
+        except Exception as e:
+            UI.lvprint(
+                0,
+                "ERROR: could not read the custom bathymetry",
+                tile.custom_bathymetry + ":",
+                e,
+            )
+            return 0
+        custom = BATHY.raster_at_posts(values, x0, y0, x1, y1)
     UI.vprint(1, "-> Computing the elevation and sea_level rasters")
     (elevation, sea_level) = BATHY.rasters(
         node_coords, tri_idx, tri_types, tile.lat, tile.lon,
-        neighbour_water(tile),
+        neighbour_water(tile), custom,
     )
 
     # 3 Recut water tris for XP12

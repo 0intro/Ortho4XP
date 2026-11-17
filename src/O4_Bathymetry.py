@@ -352,11 +352,14 @@ def floor(elevation, d, surface):
     return to_int16(numpy.minimum(elevation, surface) - depth)
 
 
-def rasters(node_coords, tri_idx, tri_types, lat, lon, around=None):
+def rasters(node_coords, tri_idx, tri_types, lat, lon, around=None, custom=None):
     # Returns the elevation and sea_level rasters of the mesh, int16.
     # around holds the water cells of the tiles around, as water_cells
     # marks them, and water where nothing is known of them, which then
-    # brings no land, as beyond the edge of CalcWaterBathymetry.
+    # brings no land, as beyond the edge of CalcWaterBathymetry. custom
+    # holds the elevations of a floor at the posts, NaN where it has none:
+    # at water posts they replace those of the rule, within 1 m to 50 m
+    # below the surface.
     (elevation, surface) = rasterize(
         node_coords, tri_idx, tri_types, lat, lon
     )
@@ -375,7 +378,46 @@ def rasters(node_coords, tri_idx, tri_types, lat, lon, around=None):
     cells[pad : pad + step, pad : pad + step] = False
     water_cells(node_coords, tri_idx, tri_types, lat, lon, cells)
     d = distance(wet_posts(cells))[pad : pad + posts, pad : pad + posts]
-    return (elevation, floor(elevation, d, surface))
+    f = floor(elevation, d, surface)
+    if custom is not None:
+        ok = (d > 0) & numpy.isfinite(custom)
+        surf = numpy.minimum(elevation, surface)[ok]
+        f[ok] = to_int16(numpy.clip(custom[ok], surf - 50, surf - 1))
+    return (elevation, f)
+
+
+def raster_at_posts(values, x0, y0, x1, y1):
+    # values, a raster from north to south whose first and last posts lie
+    # at x0, y1 and x1, y0 from the south west corner of the tile, with
+    # -32768 for no data, at the posts of the rasters of the DSF,
+    # bilinearly, and NaN beyond it or where a post of no data weighs.
+    (h, w) = values.shape
+    (j, i) = numpy.mgrid[0:posts, 0:posts]
+    x = (i / step - x0) / (x1 - x0) * (w - 1)
+    y = (y1 - j / step) / (y1 - y0) * (h - 1)
+    inside = (x >= 0) & (x <= w - 1) & (y >= 0) & (y <= h - 1)
+    out = numpy.full((posts, posts), numpy.nan)
+    if not inside.any():
+        return out
+    (x, y) = (x[inside], y[inside])
+    i0 = numpy.minimum(numpy.floor(x).astype(numpy.int64), w - 2)
+    j0 = numpy.minimum(numpy.floor(y).astype(numpy.int64), h - 2)
+    (fx, fy) = (x - i0, y - j0)
+    # Only the window of the raster over the tile turns to floats.
+    (a, b) = (i0.min(), j0.min())
+    window = values[b : j0.max() + 2, a : i0.max() + 2]
+    v = numpy.where(window == -32768, numpy.nan, window.astype(float))
+    (i0, j0) = (i0 - a, j0 - b)
+    total = numpy.zeros(len(x))
+    for (dj, di, weight) in (
+        (0, 0, (1 - fx) * (1 - fy)),
+        (0, 1, fx * (1 - fy)),
+        (1, 0, (1 - fx) * fy),
+        (1, 1, fx * fy),
+    ):
+        total += numpy.where(weight > 0, v[j0 + dj, i0 + di] * weight, 0)
+    out[inside] = total
+    return out
 
 
 def sample(r, x, y):

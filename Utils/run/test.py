@@ -1523,6 +1523,79 @@ finally:
     os.replace(masks + ".lake", masks)
 """
 
+# Step 3 with a custom bathymetry, a GeoTIFF of the tile without data but
+# in three blocks of posts: -35 m offshore, +5 m offshore, which Step 3
+# clips to 1 m below the surface, and -100 m across the coast, which it
+# clips to 50 m below. Its DSF goes to bathymetry.txt in text. A corrupt
+# file stops Step 3, which names it. Without downloads, Step 3 leaves the
+# textures, and the tile config, the DSF, and the textures go back as
+# they were.
+bathymetry_code = geotiff_writer + """
+import contextlib
+import io
+import os
+import shutil
+import subprocess
+import O4_Imagery_Utils as IMG
+IMG.initialize_extents_dict()
+IMG.initialize_color_filters_dict()
+IMG.initialize_providers_dict()
+IMG.initialize_combined_providers_dict()
+import O4_Config_Utils as CFG
+import O4_Overlay_Utils as OVL
+import O4_Tile_Utils as TILE
+floor = numpy.full((1201, 1201), -32768, numpy.int16)
+# Rows run from north to south, post j from the south.
+for (i0, i1, j0, j1, value) in ((20, 60, 20, 60, -35), (20, 60, 70, 110, 5), (140, 160, 130, 150, -100)):
+    floor[1200 - j1 : 1201 - j0, i0 : i1 + 1] = value
+write_geotiff(os.path.abspath("floor.tif"), floor, True, -32768, "tiff_deflate")
+with open("corrupt.tif", "wb") as f:
+    f.write(b"II*\\0garbage")
+tile = CFG.Tile(45, 5, "")
+tile.read_from_config()
+cfg = os.path.join(tile.build_dir, "Ortho4XP_+45+005.cfg")
+dsf = os.path.join(tile.build_dir, "Earth nav data", "+40+000", "+45+005.dsf")
+textures = os.path.join(tile.build_dir, "textures")
+before = set(os.listdir(textures))
+shutil.copy(cfg, cfg + ".bathymetry")
+shutil.copy(dsf, dsf + ".bathymetry")
+TILE.skip_downloads = True
+try:
+    tile.custom_bathymetry = os.path.abspath("corrupt.tif")
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        built = TILE.build_tile(tile)
+    if built or "corrupt.tif" not in out.getvalue():
+        sys.exit("Step 3 with a corrupt custom_bathymetry: went on, or named another file")
+    tile.custom_bathymetry = os.path.abspath("floor.tif")
+    if not TILE.build_tile(tile):
+        sys.exit("Step 3 with a custom bathymetry failed")
+    if subprocess.run([OVL.dsftool_cmd.strip(), "-dsf2text", dsf, "bathymetry.txt"], stdout = subprocess.DEVNULL).returncode:
+        sys.exit(dsf + ": DSFTool cannot read it")
+finally:
+    os.replace(cfg + ".bathymetry", cfg)
+    os.replace(dsf + ".bathymetry", dsf)
+    for f in set(os.listdir(textures)) - before:
+        os.remove(os.path.join(textures, f))
+"""
+
+# The floor of the bathymetry rerun: the custom one, clipped, at three
+# water posts, and that of the main build at every post off the blocks.
+def check_bathymetry(top, work):
+    raw = lambda text, name: numpy.fromfile(text + "." + name + ".raw", "<i2").astype(int).reshape(1201, 1201)
+    main = raw(os.path.join(work, "dsf.txt"), "sea_level")
+    got = raw(os.path.join(top, "bathymetry.txt"), "sea_level")
+    errors = []
+    for ((i, j), want) in (((40, 40), -35), ((40, 90), -1), ((150, 140), -50)):
+        if got[j, i] != want:
+            errors.append("bathymetry: sea_level " + str(got[j, i]) + " at post " + str((i, j)) + ", want " + str(want) + " (the rule gave " + str(main[j, i]) + ")")
+    (j, i) = numpy.nonzero(got != main)
+    off = [(a, b) for (a, b) in zip(i.tolist(), j.tolist())
+        if not any(i0 - 1 <= a <= i1 + 1 and j0 - 1 <= b <= j1 + 1 for (i0, i1, j0, j1) in ((20, 60, 20, 60), (20, 60, 70, 110), (140, 160, 130, 150)))]
+    if off:
+        errors.append("bathymetry: the floor changed off the raster, at posts such as " + str(off[:3]))
+    return errors
+
 # Shift-click on Build Mesh: moulinette reorders the mesh, which keeps its
 # triangles, groups them per texture of the zoomlevel, and numbers the
 # vertices in their order of first use. Step 3 then builds the DSF again.
@@ -1963,10 +2036,13 @@ gui.config_window.v_["skip_downloads"].set(sys.argv[1])
 gui.config_window.v_["masks_width"].set("[1, 2")
 gui.config_window.v_["mesh_zl"].set("17")
 gui.config_window.v_["use_masks_for_inland"].set("True")
+gui.config_window.v_["custom_bathymetry"].set("floor.tif")
+gui.config_window.v_["water_tech"].set("XP12")
 gui.config_window.apply_changes()
 if TILE.skip_downloads is not False or CFG.masks_width != 100:
     errors.append("config window: kept invalid values")
-if CFG.get_var("mesh_zl") != 17 or CFG.get_var("use_masks_for_inland") is not True:
+if (CFG.get_var("mesh_zl") != 17 or CFG.get_var("use_masks_for_inland") is not True
+        or CFG.get_var("custom_bathymetry") != "floor.tif" or CFG.get_var("water_tech") != "XP12"):
     errors.append("config window: dropped valid values")
 # Dragging the tile map with the right button moves it. Aqua Tk calls
 # the right button 2 before Tk 8.7, and 3 from then on.
@@ -2505,6 +2581,8 @@ def test_tile(work, top, errors):
     errors += check("rebuild", rebuild_code, [], work, top, log)
     errors += check("streamer", streamer_code, [], work, top, log)
     errors += check("lakemask", lake_mask_code, [], work, top, log)
+    bathymetry = check("bathymetry", bathymetry_code, [], work, top, log)
+    errors += bathymetry or check_bathymetry(top, work)
     errors += check("overlay", overlay_code, [gs], work, top, log)
     errors += check("norasters", no_rasters_code, [os.path.join(work, "Global Scenery 11")], work, top, log)
     errors += check("badoverlay", bad_overlay_code, [os.path.join(work, "Global Scenery bad")], work, top, log)
