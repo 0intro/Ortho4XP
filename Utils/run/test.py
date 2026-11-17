@@ -612,22 +612,28 @@ if rasters != (b"", b""):
 """
 
 # Step 4 on a source DSF that DSFTool cannot read. DSFTool says so on
-# standard error, and exits with status 0.
+# standard error, and exits with status 0. Step 4 then stops, and leaves
+# none of its files in tmp.
 bad_overlay_code = """
 import contextlib
 import io
 import os
+import O4_File_Names as FNAMES
 import O4_Overlay_Utils as OVL
 OVL.custom_overlay_src = sys.argv[1]
 dsf_dir = os.path.join(OVL.custom_overlay_src, "Earth nav data", "+40+000")
 os.makedirs(dsf_dir)
 with open(os.path.join(dsf_dir, "+45+005.dsf"), "w") as f:
     f.write("not a DSF")
+before = set(os.listdir(FNAMES.Tmp_dir))
 out = io.StringIO()
 with contextlib.redirect_stdout(out):
     OVL.build_overlay(45, 5)
 if "could not be read" not in out.getvalue():
     sys.exit("build_overlay: the error of DSFTool missing from the output: " + repr(out.getvalue()[-300:]))
+left = set(os.listdir(FNAMES.Tmp_dir)) - before
+if left:
+    sys.exit("build_overlay after the error of DSFTool left " + str(sorted(left)) + " in tmp")
 """
 
 # Step 4: extract the overlays of the Global Scenery DSF.
@@ -637,6 +643,7 @@ import subprocess
 import O4_File_Names as FNAMES
 import O4_Overlay_Utils as OVL
 OVL.custom_overlay_src = sys.argv[1]
+before = set(os.listdir(FNAMES.Tmp_dir))
 if not OVL.build_overlay(45, 5):
     sys.exit("build_overlay failed")
 dsf = os.path.join(FNAMES.Overlay_dir, "Earth nav data", "+40+000", "+45+005.dsf")
@@ -645,6 +652,10 @@ with open("overlay.txt") as f:
     text = f.read()
 if "BEGIN_POLYGON 1 " not in text or "BEGIN_POLYGON 0 " in text or "BEGIN_SEGMENT" not in text:
     sys.exit(dsf + ": want the forest and the road, without the beach")
+# DSFTool writes a file for each raster of the source DSF beside its text.
+left = set(os.listdir(FNAMES.Tmp_dir)) - before
+if left:
+    sys.exit("build_overlay left " + str(sorted(left)) + " in tmp")
 """
 
 # The sort of a mesh in a folder whose name moulinette prints in another

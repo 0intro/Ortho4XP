@@ -1,3 +1,4 @@
+import glob
 import time
 import os
 import shutil
@@ -81,6 +82,22 @@ def extract_7z(archive, dest):
     return 1
 
 ################################################################################
+def remove_tmp_files(lat, lon):
+    # The files of Step 4 in tmp: the copy of the source DSF, its text,
+    # the rasters that DSFTool writes beside it, and the text and the DSF
+    # without the mesh.
+    base = os.path.join(FNAMES.Tmp_dir, FNAMES.short_latlon(lat, lon))
+    text = base + "_tmp_dsf.txt"
+    files = [base + ".dsf", text] + glob.glob(glob.escape(text) + ".*.raw")
+    files += [base + "_tmp_dsf_without_mesh" + ext for ext in (".txt", ".dsf")]
+    for f in files:
+        try:
+            os.remove(f)
+        except FileNotFoundError:
+            pass
+
+
+################################################################################
 def build_overlay(lat, lon):
     if UI.is_working:
         return 0
@@ -153,6 +170,7 @@ def build_overlay(lat, lon):
         else:
             UI.vprint(1, "     " + line.decode("utf-8", "backslashreplace")[:-1])
     if fingers_crossed.wait():
+        remove_tmp_files(lat, lon)
         UI.exit_message_and_bottom_line("   ERROR: DSFTool crashed.")
         return 0
     UI.vprint(1, "-> Selecting overlays for copy/paste")
@@ -256,6 +274,7 @@ def build_overlay(lat, lon):
         else:
             print("     " + line.decode("utf-8", "backslashreplace")[:-1])
     if fingers_crossed.wait():
+        remove_tmp_files(lat, lon)
         UI.exit_message_and_bottom_line("   ERROR: DSFTool crashed.")
         return 0
     dest_dir = os.path.join(
@@ -266,6 +285,7 @@ def build_overlay(lat, lon):
         try:
             os.makedirs(dest_dir)
         except:
+            remove_tmp_files(lat, lon)
             UI.exit_message_and_bottom_line(
                 "   ERROR: could not create destination directory "
                 + str(dest_dir)
@@ -278,38 +298,6 @@ def build_overlay(lat, lon):
         ),
         os.path.join(dest_dir, FNAMES.short_latlon(lat, lon) + ".dsf"),
     )
-    os.remove(
-        os.path.join(
-            FNAMES.Tmp_dir,
-            FNAMES.short_latlon(lat, lon) + "_tmp_dsf_without_mesh.dsf",
-        )
-    )
-    os.remove(
-        os.path.join(
-            FNAMES.Tmp_dir,
-            FNAMES.short_latlon(lat, lon) + "_tmp_dsf_without_mesh.txt",
-        )
-    )
-    os.remove(
-        os.path.join(
-            FNAMES.Tmp_dir, FNAMES.short_latlon(lat, lon) + "_tmp_dsf.txt"
-        )
-    )
-    os.remove(file_to_sniff_loc)
-    try:
-        os.remove(
-            os.path.join(
-                FNAMES.Tmp_dir,
-                FNAMES.short_latlon(lat, lon) + "_tmp_dsf.txt.elevation.raw",
-            )
-        )
-        os.remove(
-            os.path.join(
-                FNAMES.Tmp_dir,
-                FNAMES.short_latlon(lat, lon) + "_tmp_dsf.txt.sea_level.raw",
-            )
-        )
-    except:
-        pass
+    remove_tmp_files(lat, lon)
     UI.timings_and_bottom_line(timer)
     return 1
