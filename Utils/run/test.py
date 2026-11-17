@@ -1866,10 +1866,11 @@ if errors:
 
 # Failures inside the steps: a task that raises fails its parallel launch
 # while the others run, a texture whose build raises counts as failed, a
-# stopped Step 3 leaves its DSF inactive, and build_dsf leaves the active
-# DSF in place while it writes the new one. A mask whose build raises
-# fails Step 2.5. That last one leaves the tile without masks, so this
-# check runs last.
+# stopped Step 3 leaves its DSF inactive, and so does one whose DSF fails
+# or raises, beside a DSF left by an earlier stop. build_dsf leaves the
+# active DSF in place while it writes the new one. A mask whose build
+# raises fails Step 2.5. That last one leaves the tile without masks, so
+# this check runs last.
 failures_code = """
 import os
 import queue
@@ -1938,6 +1939,10 @@ TILE.DSF.build_dsf = stop
 TILE.skip_downloads = True
 if TILE.build_tile(stopped) or os.path.exists(dsf):
     errors.append("Step 3 stopped: " + dsf + " in place, want it inactive")
+for (how, build_dsf) in (("failing", lambda tile, download_queue: 0), ("raising", fail)):
+    TILE.DSF.build_dsf = build_dsf
+    if TILE.build_tile(stopped) or os.path.exists(dsf) or not os.path.exists(dsf + ".tmp"):
+        errors.append("Step 3 with build_dsf " + how + " after a stop: " + dsf + " in place, want it inactive")
 with open(dsf, "wb") as f:
     f.write(b"active")
 UI.red_flag = False
