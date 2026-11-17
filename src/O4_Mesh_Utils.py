@@ -520,6 +520,38 @@ def extract_mesh_to_obj(
 
 
 ################################################################################
+def run_triangle4xp(mesh_cmd, angles, switches):
+    # Runs Triangle4XP, whose command mesh_cmd takes the options as its
+    # second word, with switches and each minimum angle of angles in turn
+    # until a run succeeds. Returns the angle of that run, or None.
+    for (k, angle) in enumerate(angles):
+        if k > 0:
+            UI.vprint(
+                0,
+                "\nWARNING: Triangle4XP could not achieve the requested quality ",
+                "(min_angle), most probably due to an uncatched OSM error.\n",
+                "It will be tempted now with no angle constraint ",
+                "(i.e. min_angle=0).",
+            )
+        mesh_cmd[1] = "-pq" + "{:.9g}".format(angle) + switches
+        UI.vprint(2, "   Mesh command:", " ".join(mesh_cmd))
+        fingers_crossed = subprocess.Popen(
+            mesh_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0
+        )
+        while True:
+            line = fingers_crossed.stdout.readline()
+            if not line:
+                break
+            try:
+                print(line.decode("utf-8", "backslashreplace")[:-1])
+            except:
+                pass
+        if not fingers_crossed.wait():
+            return angle
+    return None
+
+
+################################################################################
 def build_mesh(tile):
     if UI.is_working:
         return 0
@@ -632,7 +664,6 @@ def build_mesh(tile):
 
     limit_tris = "S" + str(max_steiner)
     tri_switches = do_refine + "uYB" + tri_verbosity + output_poly + limit_tris
-    Tri_option = "-pq" + "{:.9g}".format(tile.min_angle) + tri_switches
 
     weight_array = numpy.ones((1001, 1001), dtype=numpy.float32)
     if not build_curv_tol_weight_map(tile, weight_array):
@@ -652,7 +683,7 @@ def build_mesh(tile):
 
     mesh_cmd = [
         Triangle4XP_cmd.strip(),
-        Tri_option.strip(),
+        "",
         "{:.9g}".format(GEO.lon_to_m(tile.lat)),
         "{:.9g}".format(GEO.lat_to_m),
         "{:d}".format(tile.dem.nxdem),
@@ -671,56 +702,18 @@ def build_mesh(tile):
     del tile.dem  # for machines with not much RAM, we do not need it anymore
     tile.dem = None
     UI.vprint(1, "-> Start of the mesh algorithm Triangle4XP.")
-    UI.vprint(2, "   Mesh command:", " ".join(mesh_cmd))
-    fingers_crossed = subprocess.Popen(
-        mesh_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0
-    )
-    while True:
-        line = fingers_crossed.stdout.readline()
-        if not line:
-            break
-        else:
-            try:
-                print(line.decode("utf-8", "backslashreplace")[:-1])
-            except:
-                pass
-    fingers_crossed.wait()
-    if fingers_crossed.returncode:
-        UI.vprint(
-            0,
-            "\nWARNING: Triangle4XP could not achieve the requested quality ",
-            "(min_angle), most probably due to an uncatched OSM error.\n",
-            "It will be tempted now with no angle constraint ",
-            "(i.e. min_angle=0).",
+    angles = [tile.min_angle, 0] if tile.min_angle else [0]
+    if run_triangle4xp(mesh_cmd, angles, tri_switches) is None:
+        UI.exit_message_and_bottom_line(
+            "\nERROR: Triangle4XP really couldn't make it !\n\n",
+            "If the reason is not due to the limited amount of ",
+            "RAM please\n",
+            "file a bug including the .node and .poly files that you\n",
+            "will find in ",
+            str(tile.build_dir),
+            ".\n",
         )
-        mesh_cmd[1] = "-pq0" + tri_switches
-        fingers_crossed = subprocess.Popen(
-            mesh_cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            bufsize=0,
-        )
-        while True:
-            line = fingers_crossed.stdout.readline()
-            if not line:
-                break
-            else:
-                try:
-                    print(line.decode("utf-8", "backslashreplace")[:-1])
-                except:
-                    pass
-        fingers_crossed.wait()
-        if fingers_crossed.returncode:
-            UI.exit_message_and_bottom_line(
-                "\nERROR: Triangle4XP really couldn't make it !\n\n",
-                "If the reason is not due to the limited amount of ",
-                "RAM please\n",
-                "file a bug including the .node and .poly files that you\n",
-                "will find in ",
-                str(tile.build_dir),
-                ".\n",
-            )
-            return 0
+        return 0
 
     if UI.red_flag:
         UI.exit_message_and_bottom_line()
