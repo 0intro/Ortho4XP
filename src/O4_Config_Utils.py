@@ -442,7 +442,7 @@ too low to grab these details.",
     "use_decal_on_terrain": {
         "type": bool,
         "default": False,
-        "hint": "Terrain files for all but water triangles will contain the maquify_1_green_key.dcl decal directive. The effect is noticeable at very low altitude and helps to overcome the orthophoto blur at such levels. Can be slightly distracting at higher altitude.",
+        "hint": "Terrain files of land triangles will contain the maquify_2_green_key.dcl decal directive. The effect is noticeable at very low altitude and helps to overcome the orthophoto blur at such levels. Can be slightly distracting at higher altitude.",
     },
     # Other
     "custom_dem": {
