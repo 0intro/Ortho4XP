@@ -1,6 +1,5 @@
 import os
 import shutil
-import io
 from math import floor, ceil
 import array
 import numpy
@@ -333,84 +332,101 @@ def create_terrain_file(
 ################################################################################
 
 ################################################################################
-def extract_elevation_and_bathymetry_data(lat, lon):
-    UI.vprint(1, "     Extracting some rasters from X-Plane's Global Scenery")
-    global_scenery_dsf = OVL.global_scenery_dsf(lat, lon)
-    if not os.path.exists(global_scenery_dsf):
+def atoms(data, start, end):
+    # Yields the id, start, and end of each atom of a DSF in data[start:end],
+    # its id as the DSF stores it, reversed.
+    while start + 8 <= end:
+        (length,) = struct.unpack_from("<I", data, start + 4)
+        if length < 8 or start + length > end:
+            raise ValueError("atom of length " + str(length) + " at " + str(start))
+        yield (data[start : start + 4], start + 8, start + length)
+        start += length
+
+
+# The rasters of the Global Scenery DSF that Step 3 copies, after the
+# elevation and sea_level rasters that it computes from the mesh.
+copied_rasters = (
+    b"soundscape",
+    b"spr1",
+    b"spr2",
+    b"sum1",
+    b"sum2",
+    b"fal1",
+    b"fal2",
+    b"win1",
+    b"win2",
+)
+
+
+def global_scenery_rasters(lat, lon):
+    # The rasters of the Global Scenery DSF of the tile that Step 3 copies,
+    # as (name, DEMI payload, DEMD payload), or none after a warning.
+    dsf = OVL.global_scenery_dsf(lat, lon)
+    if not os.path.exists(dsf):
         UI.lvprint(
             1,
             "     WARNING: file",
-            global_scenery_dsf,
-            "absent, the DSF goes without the Global Scenery rasters.",
-            "Set custom_overlay_src to the Global Scenery directory.",
+            dsf,
+            "absent, the DSF goes without the soundscape and the seasons",
+            "of the Global Scenery. Set custom_overlay_src to the Global",
+            "Scenery directory.",
         )
-        return (b"", b"")
-    tmp_file = OVL.unpacked_copy(global_scenery_dsf, lat, lon)
-    if not tmp_file:
-        return (b"", b"")
-    file_len = os.path.getsize(tmp_file)
-    f = open(tmp_file, "rb")
-    # read filetype cookie
-    dsfid = f.read(8).decode("ascii")
-    if dsfid != "XPLNEDSF":
-        UI.lvprint(0, "     ERROR: Corrupted DSF file.")
-        os.remove(tmp_file)
-        return (b"", b"")
-    # skip format number
-    f.read(4)
-    # read atoms
-    atoms_len = file_len - 12 - 16  # 12 for HDR and 16 for MD5
-    atoms_consumed = 0
-    # Rasters are optional in a DSF.
-    bDEMN = bDEMS = b""
-    while atoms_consumed < atoms_len:
-        atom_hdr = f.read(4).decode("ascii")
-        atom_len = struct.unpack("<I", f.read(4))[0]
-        if atom_hdr == "SMED":
-            bDEMS_orig = f.read(atom_len - 8)
-            bDEMS = b""
-            bELEV = b""
-            g = io.BytesIO(bDEMS_orig)
-            consumed = 8
-            i = 0
-            while consumed < atom_len:
-                bH = g.read(4)
-                sub_atom_hdr = bH.decode("ascii")
-                bL = g.read(4)
-                sub_atom_len = struct.unpack("<I", bL)[0]
-                bDATA = g.read(sub_atom_len - 8)
-                if (sub_atom_len > 100):
-                    i += 1
-                    if (i == 1):
-                        bELEV = bDATA
-                    elif (i == 2):
-                        # XP bathy data for inland water is only partial,
-                        # we use a safe margin = DEM_elev - 2 to cope with it
-                        bathy = numpy.frombuffer(bDATA, dtype=numpy.int16)
-                        safe  = numpy.frombuffer(bELEV, dtype=numpy.int16) - 2 
-                        bathy = numpy.minimum(bathy, safe)
-                        bDATA = bytes(bathy)
-                bDEMS += bH + bL + bDATA
-                consumed += sub_atom_len
-            g.close()
-        elif atom_hdr == "NFED":
-            consumed = 8
-            while consumed < atom_len:
-                sub_atom_hdr = f.read(4).decode("ascii")
-                sub_atom_len = struct.unpack("<I", f.read(4))[0]
-                data = f.read(sub_atom_len - 8)
-                if sub_atom_hdr == "NMED":
-                    bDEMN = data
-                consumed += sub_atom_len
-        else:
-            f.read(atom_len - 8)
+        return []
+    copy = OVL.unpacked_copy(dsf, lat, lon)
+    if not copy:
+        return []
+    with open(copy, "rb") as f:
+        data = f.read()
+    os.remove(copy)
+    names = []
+    rasters = []
+    try:
+        if data[:8] != b"XPLNEDSF":
+            raise ValueError("no XPLNEDSF cookie")
+        for (aid, start, end) in atoms(data, 12, len(data) - 16):
+            if aid == b"NFED":
+                for (sid, s0, s1) in atoms(data, start, end):
+                    if sid == b"NMED":
+                        names = data[s0:s1].split(b"\0")[:-1]
+            elif aid == b"SMED":
+                info = None
+                for (sid, s0, s1) in atoms(data, start, end):
+                    if sid == b"IMED":
+                        info = data[s0:s1]
+                    elif sid == b"DMED" and info is not None:
+                        rasters.append((info, data[s0:s1]))
+                        info = None
+    except (ValueError, struct.error) as e:
+        UI.lvprint(0, "     ERROR: Corrupted DSF file", dsf + ":", e)
+        return []
+    return [
+        (name, info, payload)
+        for (name, (info, payload)) in zip(names, rasters)
+        if name in copied_rasters
+    ]
 
-        atoms_consumed += atom_len
 
-    f.close()
-    os.remove(tmp_file)
-
+def dsf_rasters(lat, lon, elevation, sea_level):
+    # The payloads of the DEMN and DEMS atoms of the DSF: the elevation and
+    # sea_level rasters, int16 posts with row 0 to the south as in
+    # X-Plane's own DSFs, then the copied rasters of the Global Scenery.
+    UI.vprint(1, "     Writing the rasters")
+    names = [b"elevation", b"sea_level"]
+    bDEMS = b""
+    for r in (elevation, sea_level):
+        (h, w) = r.shape
+        info = struct.pack("<BBHIIff", 1, 2, 5, w, h, 1.0, 0.0)
+        bDEMS += sub_atom(b"IMED", info)
+        bDEMS += sub_atom(b"DMED", r.astype("<i2").tobytes())
+    for (name, info, payload) in global_scenery_rasters(lat, lon):
+        names.append(name)
+        bDEMS += sub_atom(b"IMED", info) + sub_atom(b"DMED", payload)
+    bDEMN = b"".join(name + b"\0" for name in names)
     return (bDEMN, bDEMS)
+
+
+def sub_atom(aid, payload):
+    return aid + struct.pack("<I", 8 + len(payload)) + payload
 
 
 ################################################################################
@@ -433,6 +449,11 @@ def build_dsf(tile, download_queue):
         t = tri_types[i] & has_water
         t = t and (2 * (t > 1 or tile.use_masks_for_inland) or 1)
         tri_types[i] = t
+
+    UI.vprint(1, "-> Computing the elevation and sea_level rasters")
+    (elevation, sea_level) = BATHY.rasters(
+        node_coords, tri_idx, tri_types, tile.lat, tile.lon
+    )
 
     # 3 Recut water tris for XP12
     UI.vprint(1, "-> Adapting water triangles to XP12 requirements")
@@ -1015,7 +1036,7 @@ def build_dsf(tile, download_queue):
         bPROP += b"sim/creation_agent\0Patched by Ortho4XP\0"
 
     # Transfer DEM and bathymetry raster from Global Scenery tiles
-    (bDEMN, bDEMS) = extract_elevation_and_bathymetry_data(tile.lat, tile.lon)
+    (bDEMN, bDEMS) = dsf_rasters(tile.lat, tile.lon, elevation, sea_level)
 
     # Computation of intermediate and of total length
     size_of_head_atom = 16 + len(bPROP)
