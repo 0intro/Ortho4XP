@@ -645,6 +645,10 @@ with open("overlay.txt") as f:
     text = f.read()
 if "BEGIN_POLYGON 1 " not in text or "BEGIN_POLYGON 0 " in text or "BEGIN_SEGMENT" not in text:
     sys.exit(dsf + ": want the forest and the road, without the beach")
+# DSFTool writes a file for each raster of the source DSF beside its text.
+left = [f for f in os.listdir(FNAMES.Tmp_dir) if "_tmp_dsf" in f]
+if left:
+    sys.exit("build_overlay left " + str(sorted(left)) + " in tmp")
 """
 
 # The sort of a mesh in a folder whose name moulinette prints in another

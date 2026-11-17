@@ -1,3 +1,4 @@
+import glob
 import time
 import os
 import shutil
@@ -296,20 +297,11 @@ def build_overlay(lat, lon):
         )
     )
     os.remove(file_to_sniff_loc)
-    try:
-        os.remove(
-            os.path.join(
-                FNAMES.Tmp_dir,
-                FNAMES.short_latlon(lat, lon) + "_tmp_dsf.txt.elevation.raw",
-            )
-        )
-        os.remove(
-            os.path.join(
-                FNAMES.Tmp_dir,
-                FNAMES.short_latlon(lat, lon) + "_tmp_dsf.txt.sea_level.raw",
-            )
-        )
-    except:
-        pass
+    # DSFTool writes each raster of the source DSF beside the text.
+    text = os.path.join(
+        FNAMES.Tmp_dir, FNAMES.short_latlon(lat, lon) + "_tmp_dsf.txt"
+    )
+    for raw in glob.glob(glob.escape(text) + ".*.raw"):
+        os.remove(raw)
     UI.timings_and_bottom_line(timer)
     return 1
