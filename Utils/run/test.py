@@ -119,10 +119,13 @@ scenery_dir = "C:\\Users\\Frédéric\\X-Plane 12 €\\Custom Scenery"
 # 7-Zip as Ortho4XP finds it, and on Windows, the 7-Zip installed in
 # Program Files when the one in Utils is missing. A copy in Utils that
 # cannot run is passed over, and a 7-Zip that fails to start gets an
-# error.
+# error. A Global Scenery DSF whose archive is damaged leaves nothing in
+# tmp, and the one file of an archive is its DSF, whatever its name.
 seven_zip_code = """
 import os
+import random
 import subprocess
+import O4_File_Names as FNAMES
 import O4_Overlay_Utils as OVL
 cmd = OVL.seven_zip()
 if not cmd:
@@ -162,6 +165,31 @@ if os.name != "nt":
         os.chmod(bundled, mode)
     if found == bundled:
         sys.exit(bundled + ": found while it cannot run")
+with open("+45+005.dsf", "wb") as f:
+    f.write(random.Random(1).randbytes(65536))
+subprocess.run([cmd, "a", "damaged.7z", "+45+005.dsf"], stdout = subprocess.DEVNULL, check = True)
+os.remove("+45+005.dsf")
+with open("damaged.7z", "rb") as f:
+    data = bytearray(f.read())
+data[100] ^= 0xff
+with open("damaged.7z", "wb") as f:
+    f.write(data)
+before = set(os.listdir(FNAMES.Tmp_dir))
+copy = OVL.unpacked_copy(os.path.abspath("damaged.7z"), 45, 5)
+left = sorted(set(os.listdir(FNAMES.Tmp_dir)) - before)
+if copy is not None or left:
+    sys.exit("unpacked_copy of a damaged archive: gave " + str(copy) + " and left " + str(left) + " in tmp, want neither")
+with open("other.dsf", "wb") as f:
+    f.write(b"XPLNEDSF")
+subprocess.run([cmd, "a", "renamed.7z", "other.dsf"], stdout = subprocess.DEVNULL, check = True)
+os.remove("other.dsf")
+copy = OVL.unpacked_copy(os.path.abspath("renamed.7z"), 45, 5)
+if copy is None or not os.path.isfile(copy) or os.path.exists(copy + ".d"):
+    sys.exit("unpacked_copy: an archive whose DSF has another name gave " + str(copy) + ", want its copy, and no folder left")
+with open(copy, "rb") as f:
+    if f.read() != b"XPLNEDSF":
+        sys.exit("unpacked_copy: the copy of an archive whose DSF has another name holds another file")
+os.remove(copy)
 with open("not7z.txt", "w") as f:
     f.write("Ortho4XP")
 OVL.seven_zip = lambda: os.path.abspath("not7z.txt")
