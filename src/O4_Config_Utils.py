@@ -217,7 +217,7 @@ a particular server.",
         "module": "OVL",
         "type": str,
         "default": "",
-        "hint": "The directory containing the sceneries with the overlays you would like to extract, and the rasters that Step 3 copies, usually Global Scenery/X-Plane 12 Global Scenery. You need to select the level of directory just _ABOVE_ Earth nav data. A tile that the X-Plane 12 Demo Areas directory beside it holds comes from there, as X-Plane loads it from there.",
+        "hint": "The directory containing the sceneries with the overlays you would like to extract, and the rasters that Step 3 copies, usually Global Scenery/X-Plane 12 Global Scenery. You need to select the level of directory just _ABOVE_ Earth nav data. A tile that the X-Plane 12 Demo Areas directory beside it holds comes from there, as X-Plane loads it from there. In XP12 water, Step 3 also reads the maps of the colour of X-Plane's water, in Resources/bitmaps/world/water of that X-Plane: without them, the masked water fades into one colour, which can stand out against the water around.",
     },
     # Vector
     "apt_smoothing_pix": {
@@ -350,7 +350,7 @@ a particular server.",
     "imprint_masks_to_dds": {
         "type": bool,
         "default": True,
-        "hint": "Will apply masking directly to dds textures (at the Build Imagery/DSF step) rather than using external png files. This doubles the file size of masked textures (dxt5 vs dxt1) but reduce the overall VRAM footprint (a matter of choice!)",
+        "hint": "Will apply masking directly to dds textures (at the Build Imagery/DSF step) rather than using external png files. This doubles the file size of masked textures (dxt5 vs dxt1) but reduce the overall VRAM footprint (a matter of choice!) It applies to the XP11 + bathy water_tech, and to the alpha of GeoTIFF exports in either. With XP12, the masks fade the orthophoto into the colour of X-Plane's own water inside dxt1 textures, from the maps of X-Plane beside the Global Scenery of custom_overlay_src.",
     },
     "masks_use_DEM_too": {
         "type": bool,
@@ -571,9 +571,22 @@ class Tile:
     @property
     def imprint(self):
         # Whether the masks of the water go into the alpha channel of the
-        # DDS textures, rather than into PNG files beside them, which the
-        # textures need when they come from elsewhere.
-        return self.imprint_masks_to_dds and not TILE.skip_downloads
+        # DDS textures, which the overlays of XP11 water read, rather than
+        # into PNG files beside them, which the textures need when they
+        # come from elsewhere.
+        return (
+            self.imprint_masks_to_dds
+            and self.water_tech == "XP11 + bathy"
+            and not TILE.skip_downloads
+        )
+
+    @property
+    def water_color_mask(self):
+        # Whether masked water is WATER_COLOR_MASK terrain, the water of
+        # X-Plane 12 whose colour is the RGB of the texture. Step 3 then
+        # fades the photo into the colour of X-Plane's own water as the mask
+        # goes from white to black, in the textures it converts.
+        return self.water_tech == "XP12" and not TILE.skip_downloads
 
     def make_dirs(self):
         if os.path.isdir(self.build_dir):

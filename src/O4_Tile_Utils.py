@@ -110,11 +110,24 @@ def build_tile(tile):
         UI.exit_message_and_bottom_line("")
         return 0
 
-    if skip_downloads and tile.imprint_masks_to_dds:
+    if skip_downloads and (
+        tile.imprint_masks_to_dds or tile.water_tech == "XP12"
+    ):
         UI.vprint(
             1,
             "-> Downloads are skipped, so the masks of the water go to PNG",
             "files beside the textures.",
+        )
+    OVL.water_colour_maps.clear()
+    maps = OVL.water_colour_dir()
+    if tile.water_color_mask and not (maps and os.path.isdir(maps)):
+        UI.lvprint(
+            1,
+            "   WARNING: the maps of the colour of X-Plane's water are",
+            "missing" + (" in " + maps if maps else ""),
+            "(Resources/bitmaps/world/water of the X-Plane whose Global",
+            "Scenery custom_overlay_src names), so the masked water fades",
+            "into the colour of the open sea of any.png.",
         )
     download_queue = queue.Queue()
     convert_queue = queue.Queue()

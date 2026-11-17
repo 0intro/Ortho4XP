@@ -5,6 +5,7 @@ import O4_Mesh_Utils as MESH
 import O4_Vector_Utils as VECT
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
+import O4_Overlay_Utils as OVL
 import O4_UI_Utils as UI
 import O4_Version
 import ast
@@ -16,6 +17,8 @@ import io
 import requests
 import queue
 import random
+import struct
+import zlib
 from math import ceil, log, tan, pi
 import numpy
 from PIL import Image, ImageFilter, ImageEnhance, ImageOps
@@ -2289,6 +2292,96 @@ def combine_textures(tile, til_x_left, til_y_top, zoomlevel, provider_code):
 ################################################################################
 
 ################################################################################
+def water_colour_grid(til_x_left, til_y_top, zoomlevel):
+    # The colour of X-Plane's own water at n by n points from edge to edge
+    # of the texture, in rows from the north, rounded to bytes. Most of its
+    # maps hold up to 512 pixels a degree, about 1.4 between two of 257
+    # points at ZL 13. Over the few finer maps, the points lie a pixel of
+    # the map apart, or of the texture where that is coarser: 4097 points
+    # at most, which water_colour takes 256 rows at a time.
+    (lat0, lon0) = GEO.gtile_to_wgs84(til_x_left, til_y_top, zoomlevel)
+    (lat1, lon1) = GEO.gtile_to_wgs84(til_x_left + 16, til_y_top + 16, zoomlevel)
+    n = 257
+    for a in range(int(numpy.floor(lat1)), int(numpy.ceil(lat0))):
+        for b in range(int(numpy.floor(lon0)), int(numpy.ceil(lon1))):
+            rgb = OVL.water_colour_map(a, (b + 180) % 360 - 180)
+            if rgb is not None and max(rgb.shape[:2]) > 512:
+                (h, w) = rgb.shape[:2]
+                pixels = max(w * (lon1 - lon0), h * (lat0 - lat1))
+                n = max(n, int(numpy.ceil(pixels)) + 1)
+    n = min(n, 4097)
+    t = 16 * numpy.arange(n) / (n - 1)
+    lat = [GEO.gtile_to_wgs84(til_x_left, til_y_top + s, zoomlevel)[0] for s in t]
+    lon = [GEO.gtile_to_wgs84(til_x_left + s, til_y_top, zoomlevel)[1] for s in t]
+    (lat, lon) = (numpy.array(lat)[:, None], numpy.array(lon))
+    grid = numpy.empty((n, n, 3), numpy.uint8)
+    for k in range(0, n, 256):
+        grid[k : k + 256] = OVL.water_colour(lat[k : k + 256], lon).round()
+    return grid
+
+
+def water_colour_image(til_x_left, til_y_top, zoomlevel, size):
+    # The colour of X-Plane's own water over the texture, as an RGB image of
+    # size by size pixels, interpolated between the points of
+    # water_colour_grid.
+    grid = water_colour_grid(til_x_left, til_y_top, zoomlevel)
+    n = len(grid)
+    return Image.fromarray(grid).resize(
+        (size, size), Image.BILINEAR, box=(0.5, 0.5, n - 0.5, n - 0.5)
+    )
+
+
+# Step 3 tags the textures it fades into the colour of X-Plane's water
+# with fade_tag and the CRC-32 of the bytes of their water_colour_grid,
+# in the reserved words of their DDS header (dwReserved1, from byte 32 of
+# the file), which NVTT leaves free up to byte 60.
+fade_tag = b"O4XP"
+
+
+def fade_crc(til_x_left, til_y_top, zoomlevel):
+    grid = water_colour_grid(til_x_left, til_y_top, zoomlevel)
+    return struct.pack("<I", zlib.crc32(grid.tobytes()))
+
+
+def dds_header(path):
+    # The four-character code of the DDS texture at path, and the CRC-32 of
+    # the colours of water it fades into, or None.
+    with open(path, "rb") as f:
+        header = f.read(88)
+    fade = header[36:40] if header[32:36] == fade_tag else None
+    return (header[84:88], fade)
+
+
+def masked_dds_header(tile, til_x_left, til_y_top, zoomlevel, *args):
+    # The dds_header that convert_texture gives a texture of masked water:
+    # a DXT5 with the mask in its alpha for an imprint, and a DXT1
+    # otherwise, faded in XP12 water.
+    if tile.imprint:
+        return (b"DXT5", None)
+    if tile.water_color_mask:
+        return (b"DXT1", fade_crc(til_x_left, til_y_top, zoomlevel))
+    return (b"DXT1", None)
+
+
+################################################################################
+def apply_water_mask(
+    tile, image, mask, til_x_left, til_y_top, zoomlevel, type
+):
+    # The texture with the mask of the water applied. For the
+    # WATER_COLOR_MASK terrain of XP12 water, which reads the colour alone,
+    # it fades the photo into the colour of X-Plane's own water as the mask
+    # goes from white to black. Otherwise the mask becomes the alpha.
+    mask = mask.resize(image.size, Image.BICUBIC)
+    if type == "dds" and tile.water_color_mask:
+        UI.vprint(2, "      Fading the orthophoto into the colour of the water.")
+        water = water_colour_image(til_x_left, til_y_top, zoomlevel, image.size[0])
+        return Image.composite(image.convert("RGB"), water, mask)
+    UI.vprint(2, "      Applying alpha mask directly to orthophoto.")
+    image.putalpha(mask)
+    return image
+
+
+################################################################################
 def convert_texture(
     tile, til_x_left, til_y_top, zoomlevel, provider_code, type="dds"
 ):
@@ -2317,7 +2410,7 @@ def convert_texture(
     erase_tmp_tif = False
     dxt5 = False
     masked_texture = False
-    if tile.imprint and type == "dds":
+    if (tile.imprint or tile.water_color_mask) and type == "dds":
         masked_texture = os.path.exists(
             os.path.join(
                 tile.build_dir,
@@ -2337,7 +2430,7 @@ def convert_texture(
                     ),
                 )
             ).convert("L")
-    elif tile.imprint_masks_to_dds:  # type = 'tif'
+    elif type == "tif" and tile.imprint_masks_to_dds:
         if int(zoomlevel) >= tile.mask_zl:
             factor = 2 ** (zoomlevel - tile.mask_zl)
             m_til_x = (int(til_x_left / factor) // 16) * 16
@@ -2374,8 +2467,9 @@ def convert_texture(
             tile, til_x_left, til_y_top, zoomlevel, provider_code
         )
         if masked_texture:
-            UI.vprint(2, "      Applying alpha mask directly to orthophoto.")
-            big_image.putalpha(mask_im.resize((4096, 4096), Image.BICUBIC))
+            big_image = apply_water_mask(
+                tile, big_image, mask_im, til_x_left, til_y_top, zoomlevel, type
+            )
             if type == "dds":
                 try:
                     os.remove(
@@ -2389,7 +2483,7 @@ def convert_texture(
                     )
                 except:
                     pass
-            dxt5 = True
+            dxt5 = big_image.mode == "RGBA"
         file_to_convert = os.path.join(UI.Ortho4XP_dir, "tmp", png_file_name)
         erase_tmp_png = True
         big_image.save(file_to_convert)
@@ -2410,8 +2504,9 @@ def convert_texture(
                 big_image, providers_dict[provider_code]["color_filters"]
             )
         if masked_texture:
-            UI.vprint(2, "      Applying alpha mask directly to orthophoto.")
-            big_image.putalpha(mask_im.resize((4096, 4096), Image.BICUBIC))
+            big_image = apply_water_mask(
+                tile, big_image, mask_im, til_x_left, til_y_top, zoomlevel, type
+            )
             if type == "dds":
                 try:
                     os.remove(
@@ -2425,7 +2520,7 @@ def convert_texture(
                     )
                 except:
                     pass
-            dxt5 = True
+            dxt5 = big_image.mode == "RGBA"
         file_to_convert = os.path.join(UI.Ortho4XP_dir, "tmp", png_file_name)
         erase_tmp_png = True
         big_image.save(file_to_convert)
@@ -2434,22 +2529,17 @@ def convert_texture(
         file_to_convert = os.path.join(file_dir, jpeg_file_name)
     # eventually the dds conversion
     if type == "dds":
-        if not dxt5:
-            conv_cmd = [
-                dds_convert_cmd,
-                "-bc1",
-                "-fast",
-                file_to_convert,
-                os.path.join(tile.build_dir, "textures", out_file_name),
-            ]
-        else:
-            conv_cmd = [
-                dds_convert_cmd,
-                "-bc3",
-                "-fast",
-                file_to_convert,
-                os.path.join(tile.build_dir, "textures", out_file_name),
-            ]
+        # A fade ends in water of one colour, which meets terrain_Water.
+        # -fast encodes that colour up to 4 levels off, which shows as a
+        # step at the seam, and the default quality within 1.33.
+        faded = masked_texture and tile.water_color_mask
+        conv_cmd = [
+            dds_convert_cmd,
+            "-bc3" if dxt5 else "-bc1",
+            *([] if faded else ["-fast"]),
+            file_to_convert,
+            os.path.join(tile.build_dir, "textures", out_file_name),
+        ]
     else:
         (latmax, lonmin) = GEO.gtile_to_wgs84(til_x_left, til_y_top, zoomlevel)
         (latmin, lonmax) = GEO.gtile_to_wgs84(
@@ -2545,6 +2635,16 @@ def convert_texture(
             os.path.join(tile.build_dir, "textures", out_file_name),
         )
         time.sleep(1)
+    if (
+        tentative < 10
+        and type == "dds"
+        and masked_texture
+        and tile.water_color_mask
+    ):
+        dds = os.path.join(tile.build_dir, "textures", out_file_name)
+        with open(dds, "r+b") as f:
+            f.seek(32)
+            f.write(fade_tag + fade_crc(til_x_left, til_y_top, zoomlevel))
     if erase_tmp_png:
         try:
             os.remove(os.path.join(UI.Ortho4XP_dir, "tmp", png_file_name))

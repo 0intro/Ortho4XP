@@ -4,6 +4,8 @@ import os
 import shutil
 import sys
 import subprocess
+import numpy
+from PIL import Image
 import O4_File_Names as FNAMES
 import O4_UI_Utils as UI
 
@@ -96,6 +98,95 @@ def global_scenery_dsf(lat, lon):
         if os.path.exists(demo):
             return demo
     return os.path.join(custom_overlay_src, name)
+
+
+################################################################################
+# The colour of X-Plane 12's water where it has no map of it is that of
+# Resources/bitmaps/world/water/any.png, and that of 12.4.4 when the file
+# is missing.
+open_sea_colour = (13, 32, 51)
+# The maps of water_colour_map by tile, and under "any" the colour of
+# any.png, which Step 3 empties as it starts.
+water_colour_maps = {}
+
+
+def water_colour_dir():
+    # The folder of X-Plane 12's maps of the colour of its water, in the
+    # X-Plane that holds the Global Scenery of custom_overlay_src, or None.
+    if not custom_overlay_src:
+        return None
+    root = os.path.dirname(os.path.dirname(os.path.normpath(custom_overlay_src)))
+    return os.path.join(root, "Resources", "bitmaps", "world", "water")
+
+
+def water_colour_map(lat, lon):
+    # X-Plane 12's map of the colour of its water over the tile at lat,
+    # lon, as an array of RGB bytes in rows from the north, or None.
+    if (lat, lon) not in water_colour_maps:
+        folder = water_colour_dir()
+        name = folder and os.path.join(
+            folder,
+            FNAMES.round_latlon(lat, lon),
+            FNAMES.short_latlon(lat, lon) + ".png",
+        )
+        rgb = None
+        if name and os.path.isfile(name):
+            try:
+                rgb = numpy.asarray(Image.open(name).convert("RGB"))
+            except OSError as e:
+                UI.vprint(1, "   WARNING: could not read", name + ":", e)
+        water_colour_maps[(lat, lon)] = rgb
+    return water_colour_maps[(lat, lon)]
+
+
+def any_colour():
+    # The colour of X-Plane 12's own water where it has no map of it.
+    if "any" not in water_colour_maps:
+        folder = water_colour_dir()
+        name = folder and os.path.join(folder, "any.png")
+        colour = open_sea_colour
+        if name and os.path.isfile(name):
+            try:
+                rgb = numpy.asarray(Image.open(name).convert("RGB"))
+                colour = tuple(rgb.reshape(-1, 3).mean(axis=0))
+            except OSError as e:
+                UI.vprint(1, "   WARNING: could not read", name + ":", e)
+        water_colour_maps["any"] = colour
+    return water_colour_maps["any"]
+
+
+def water_colour(lat, lon):
+    # The colour of X-Plane 12's own water at lat, lon, numbers or arrays
+    # that broadcast together, sampled bilinearly from the centres of the
+    # pixels of its maps, as RGB along a last axis.
+    (lat, lon) = numpy.broadcast_arrays(
+        numpy.asarray(lat, float), numpy.asarray(lon, float)
+    )
+    # 180 E is the west edge of the tiles at 180 W.
+    lon = numpy.where(lon >= 180, lon - 360, lon)
+    out = numpy.empty(lat.shape + (3,))
+    (tlat, tlon) = (numpy.floor(lat), numpy.floor(lon))
+    tiles = numpy.stack((tlat.ravel(), tlon.ravel()), axis=1)
+    for (a, b) in numpy.unique(tiles, axis=0):
+        at = (tlat == a) & (tlon == b)
+        rgb = water_colour_map(int(a), int(b))
+        if rgb is None:
+            out[at] = any_colour()
+            continue
+        (h, w) = rgb.shape[:2]
+        x = numpy.clip((lon[at] - b) * w - 0.5, 0, w - 1)
+        y = numpy.clip((a + 1 - lat[at]) * h - 0.5, 0, h - 1)
+        i = numpy.minimum(x.astype(int), w - 2)
+        j = numpy.minimum(y.astype(int), h - 2)
+        fx = (x - i)[:, None]
+        fy = (y - j)[:, None]
+        out[at] = (
+            rgb[j, i] * (1 - fx) * (1 - fy)
+            + rgb[j, i + 1] * fx * (1 - fy)
+            + rgb[j + 1, i] * (1 - fx) * fy
+            + rgb[j + 1, i + 1] * fx * fy
+        )
+    return out
 
 
 ################################################################################
