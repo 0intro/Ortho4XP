@@ -116,6 +116,12 @@ def build_tile(tile):
         UI.exit_message_and_bottom_line("")
         return 0
 
+    if skip_downloads and tile.imprint_masks_to_dds:
+        UI.vprint(
+            1,
+            "-> Downloads are skipped, so the masks of the water go to PNG",
+            "files beside the textures.",
+        )
     download_queue = queue.Queue()
     convert_queue = queue.Queue()
     
