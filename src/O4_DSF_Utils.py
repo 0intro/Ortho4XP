@@ -845,11 +845,11 @@ def build_dsf(tile, download_queue):
                     else:  # dtx5 dds with mask included
                         idx_dsfpool = idx_pool + pool_nbr
                         dsf_pools[idx_dsfpool].extend(
-                            node_icoords[5 * n : 5 * n + 5]
+                            node_icoords[5 * n : 5 * n + 3]
                         )
                         depth = 0 if node_is_coast[n] else 65535
                         dsf_pools[idx_dsfpool].extend(
-                            (node_fetch[n], depth,
+                            (32768, 32768, node_fetch[n], depth,
                              int(round(s * 65535)), int(round(t * 65535)))
                         )
                     len_textured_nodes += 1
