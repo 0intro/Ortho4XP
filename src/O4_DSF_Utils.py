@@ -294,7 +294,7 @@ def create_terrain_file(
                     os.path.join(FNAMES.Utils_dir, "water_transition.png"),
                     os.path.join(tile.build_dir, "textures"),
                 )
-        elif (tri_type == 2) and (not tile.imprint_masks_to_dds):  
+        elif (tri_type == 2) and (not tile.imprint):
             # border_tex mask
             f.write(
                 "LOAD_CENTER_BORDER "
@@ -759,7 +759,7 @@ def build_dsf(tile, download_queue):
                 # XP11 style => overlay
                 is_overlay = (tile.water_tech == "XP11 + bathy") 
                 # No alpha channel in DDS => overlay
-                is_overlay |= not tile.imprint_masks_to_dds
+                is_overlay |= not tile.imprint
                 
                 if is_overlay:
                     overlay_terrains.add(terrain_idx)
@@ -775,7 +775,7 @@ def build_dsf(tile, download_queue):
                     rebuild = False
                     if (not os.path.isfile(target_tex)):
                         rebuild = True
-                    elif (tile.imprint_masks_to_dds):
+                    elif (tile.imprint):
                         # Maybe target_tex was a DXT1, we need DXT5
                         if (os.path.getsize(target_tex) < 20000000):
                             rebuild = True
@@ -792,7 +792,7 @@ def build_dsf(tile, download_queue):
                         if (os.path.getsize(target_tex) > 20000000):
                             rebuild = True
                     
-                    if (rebuild or not tile.imprint_masks_to_dds):
+                    if (rebuild or not tile.imprint):
                         mask_im.save(os.path.join(
                             tile.build_dir,
                             "textures",
