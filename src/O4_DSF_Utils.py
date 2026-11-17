@@ -286,9 +286,7 @@ def create_terrain_file(
         if tri_type in (1, 2) and (not is_overlay):  # XP12 water
             #pass
             f.write("WATER_COLOR_MASK\n")
-        elif (tri_type == 1) or (
-            (tri_type == 2) and (is_overlay == "ratio_water")
-        ):  # constant transparency level
+        elif tri_type == 1:  # constant transparency level
             f.write("BORDER_TEX ../textures/water_transition.png\n")
             if not os.path.exists(
                 os.path.join(tile.build_dir, "textures", "water_transition.png")
@@ -576,22 +574,13 @@ def build_dsf(tile, download_queue):
     for idx_dsfpool in range(dsf_pool_nbr):
         dsf_pools[idx_dsfpool] = array.array("H")
     dsf_pool_length = numpy.zeros(dsf_pool_nbr, "int")
-    if (tile.water_tech == "XP11 + bathy"):
-        # Land with ortho
-        dsf_pool_plane = 7 * numpy.ones(dsf_pool_nbr, "int")
-        # Masked ortho (UV1 = ortho, UV2 = border_tex (if aplicable))
-        dsf_pool_plane[pool_nbr : 2 * pool_nbr] = 9
-        # Regular XP water
-        dsf_pool_plane[2 * pool_nbr : 3 * pool_nbr] = 7
-    elif (tile.water_tech == "XP12"):
-        # Land with ortho
-        dsf_pool_plane = 7 * numpy.ones(dsf_pool_nbr, "int")
-        # Masked ortho : UV1 = fetch/depth UV2 = ortho)
-        #           or : UV1 = ortho, V2 = border_tex
-        #                for inland water with constant alpha
-        dsf_pool_plane[pool_nbr : 2 * pool_nbr] = 9
-        # Regular XP water
-        dsf_pool_plane[2 * pool_nbr : 3 * pool_nbr] = 7
+    # Land with ortho
+    dsf_pool_plane = 7 * numpy.ones(dsf_pool_nbr, "int")
+    # Masked ortho: UV1 = ortho and UV2 = border_tex on overlays, or
+    # UV1 = fetch and depth and UV2 = ortho on WATER_COLOR_MASK terrain
+    dsf_pool_plane[pool_nbr : 2 * pool_nbr] = 9
+    # Regular XP water
+    dsf_pool_plane[2 * pool_nbr : 3 * pool_nbr] = 7
     textured_nodes = {}
     len_textured_nodes = 0
     textured_tris = {}
