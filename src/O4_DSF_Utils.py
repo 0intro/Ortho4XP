@@ -611,21 +611,40 @@ def build_dsf(tile, download_queue):
     node_icoords[4::5] = numpy.round(
         (1 - tile.normal_map_strength * node_coords[4::5]) / 2 * 65535
     )
-    # The fetch of each node, at its position as the pools store it, where
-    # X-Plane reads it.
+    # The position of each node as the pools store it, where X-Plane reads
+    # it. The fetch is taken there, and the triangles left with fewer than
+    # three distinct positions there are skipped.
     pool_of_node = numpy.zeros(nbr_nodes, dtype=numpy.int64)
     pool_of_node[numpy.fromiter(idx_node_to_idx_pool.keys(), numpy.int64)] = (
         numpy.fromiter(idx_node_to_idx_pool.values(), numpy.int64)
     )
     origin = numpy.array([pool_param[k][:4] for k in range(pool_nbr)])[pool_of_node]
+    node_lon = origin[:, 1] + node_icoords[0::5] / 65535 * origin[:, 0]
+    node_lat = origin[:, 3] + node_icoords[1::5] / 65535 * origin[:, 2]
     node_fetch = numpy.round(65535 * BATHY.fetch(
-        elevation,
-        sea_level,
-        origin[:, 1] + node_icoords[0::5] / 65535 * origin[:, 0],
-        origin[:, 3] + node_icoords[1::5] / 65535 * origin[:, 2],
-        tile.lat,
-        tile.lon,
+        elevation, sea_level, node_lon, node_lat, tile.lat, tile.lon
     )).astype(int)
+    corners = numpy.asarray(tri_idx, dtype=numpy.int64).reshape(-1, 3)
+    (x, y) = (node_lon[corners], node_lat[corners])
+    collapsed = set(numpy.flatnonzero(
+        ((x[:, 0] == x[:, 1]) & (y[:, 0] == y[:, 1]))
+        | ((x[:, 1] == x[:, 2]) & (y[:, 1] == y[:, 2]))
+        | ((x[:, 2] == x[:, 0]) & (y[:, 2] == y[:, 0]))
+    ).tolist())
+    # The water is 0 deep on the shore: the positions that the triangles of
+    # land and water left share, where nodes closer than a step of their
+    # pool count as one.
+    kept = numpy.ones(len(corners), dtype=bool)
+    kept[list(collapsed)] = False
+    wet = numpy.asarray(tri_types) != 0
+    position = numpy.unique(
+        numpy.stack((node_lon, node_lat), axis=1), axis=0, return_inverse=True
+    )[1].ravel()
+    wet_at = numpy.zeros(position.max() + 1, dtype=bool)
+    dry_at = numpy.zeros(position.max() + 1, dtype=bool)
+    wet_at[position[corners[kept & wet]]] = True
+    dry_at[position[corners[kept & ~wet]]] = True
+    node_is_coast = (wet_at & dry_at)[position]
     node_icoords = array.array("H", node_icoords)
 
     
@@ -691,6 +710,8 @@ def build_dsf(tile, download_queue):
                 UI.vprint(1, "DSF construction interrupted.")
                 return 0
         done += 1
+        if tri in collapsed:
+            continue
         bary_lon = (
             node_coords[5 * n1 + 0]
             + node_coords[5 * n2 + 0]
@@ -857,14 +878,6 @@ def build_dsf(tile, download_queue):
                     textured_nodes[node_hash] = (idx_dsfpool, pos_in_pool)
                     dsf_pool_length[idx_dsfpool] += 1
                 tri_p.extend((idx_dsfpool, pos_in_pool))
-            # some triangles could be reduced to nothing by the pool snapping,
-            # we skip thme (possible killer to X-Plane's drapping of roads ?)
-            if (
-                tri_p[:2] == tri_p[2:4]
-                or tri_p[2:4] == tri_p[4:]
-                or tri_p[4:] == tri_p[:2]
-            ):
-                continue
             if tri_p[0] == tri_p[2] == tri_p[4]:
                 textured_tris[terrain_idx][tri_p[0]].extend(
                     (tri_p[1], tri_p[3], tri_p[5])
@@ -917,6 +930,8 @@ def build_dsf(tile, download_queue):
                 UI.vprint(1, "DSF construction interrupted.")
                 return 0
         done += 1
+        if tri in collapsed:
+            continue
         bary_lon = (
             node_coords[5 * n1] + node_coords[5 * n2] + node_coords[5 * n3]
         ) / 3
@@ -1021,14 +1036,6 @@ def build_dsf(tile, download_queue):
                 textured_nodes[node_hash] = (idx_dsfpool, pos_in_pool)
                 dsf_pool_length[idx_dsfpool] += 1
             tri_p.extend((idx_dsfpool, pos_in_pool))
-        # some triangles could be reduced to nothing by the pool snapping,
-        # we skip them (possible killer to X-Plane's drapping of roads ?)
-        if (
-            tri_p[:2] == tri_p[2:4]
-            or tri_p[2:4] == tri_p[4:]
-            or tri_p[4:] == tri_p[:2]
-        ):
-            continue
         if tri_p[0] == tri_p[2] == tri_p[4]:
             textured_tris[terrain_idx][tri_p[0]].extend(
                 (tri_p[1], tri_p[3], tri_p[5])
@@ -1074,6 +1081,7 @@ def build_dsf(tile, download_queue):
     UI.vprint(1, "-> Encoding of the DSF file")
     UI.vprint(1, "     Final nbr of nodes: " + str(len_textured_nodes))
     UI.vprint(2, "     Final nbr of cross pool tris: " + str(total_cross_pool))
+    UI.vprint(2, "     Collapsed tris skipped: " + str(len(collapsed)))
 
     # Now is time to write our DSF to disk, the exact binary format is 
     # described on the wiki

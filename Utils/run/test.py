@@ -980,7 +980,12 @@ if not MESH.sort_mesh(tile):
 """
 
 # Step 3 again with water_tech XP12, whose DSF goes to xp12.txt in text.
-# The tile config goes back as it was.
+# A twin of the node on the first corner of a triangle splits it into
+# itself and a triangle with two corners on one position, as two nodes
+# closer than a step of their pool give. That is done to the sea triangle
+# nearest the south west corner of the tile, whose ZL 12 texture takes no
+# mask, and to a triangle of inland water, which takes an overlay. The tile
+# config and the mesh go back as they were.
 xp12_code = """
 import os
 import shutil
@@ -991,17 +996,45 @@ IMG.initialize_color_filters_dict()
 IMG.initialize_providers_dict()
 IMG.initialize_combined_providers_dict()
 import O4_Config_Utils as CFG
+import O4_File_Names as FNAMES
 import O4_Overlay_Utils as OVL
 import O4_Tile_Utils as TILE
 tile = CFG.Tile(45, 5, "")
 tile.read_from_config()
 cfg = os.path.join(tile.build_dir, "Ortho4XP_+45+005.cfg")
 shutil.copy(cfg, cfg + ".xp12")
+mesh = FNAMES.mesh_file(tile.build_dir, 45, 5)
+shutil.copy(mesh, mesh + ".xp12")
+with open(mesh) as f:
+    lines = f.read().split("\\n")
+def twin(j):
+    n = int(lines[4])
+    m = int(lines[10 + 2 * n])
+    k = 11 + 2 * n + j
+    (a, b, c, t) = lines[k].split()[:4]
+    d = str(n + 1)
+    lines[k] = " ".join((d, b, c, t))
+    lines.insert(11 + 2 * n + m, " ".join((a, b, d, t)))
+    lines[10 + 2 * n] = str(m + 1)
+    lines.insert(8 + 2 * n, lines[7 + n + int(a)])
+    lines[7 + n] = d
+    lines.insert(5 + n, lines[4 + int(a)])
+    lines[4] = d
+n = int(lines[4])
+tris = [lines[11 + 2 * n + j].split() for j in range(int(lines[10 + 2 * n]))]
+def sw(v):
+    (x, y) = lines[4 + int(v)].split()[:2]
+    return float(x) + float(y)
+twin(min((j for j in range(len(tris)) if int(tris[j][3]) & 6), key = lambda j: sum(sw(v) for v in tris[j][:3])))
+twin(next(j for j in range(len(tris)) if int(tris[j][3]) & 7 == 1))
+with open(mesh, "w") as f:
+    f.write("\\n".join(lines))
 tile.water_tech = "XP12"
 try:
     built = TILE.build_tile(tile)
 finally:
     os.replace(cfg + ".xp12", cfg)
+    os.replace(mesh + ".xp12", mesh)
 if not built:
     sys.exit("Step 3 failed")
 dsf = os.path.join(tile.build_dir, "Earth nav data", "+40+000", "+45+005.dsf")
@@ -1630,6 +1663,18 @@ def dsf_patches(text):
                 patch[4].append([float(x) for x in w[1:]])
     return out
 
+# Every triangle of a DSF keeps three distinct positions once its vertices
+# are quantized in their pools: the others are slivers, which X-Plane
+# skips or draws as cracks.
+def check_collapsed(text, patches):
+    for (name, ps) in patches.items():
+        for (near, far, flags, depth, vertices) in ps:
+            for k in range(0, len(vertices), 3):
+                tri = [tuple(v[:2]) for v in vertices[k : k + 3]]
+                if len(set(tri)) < 3:
+                    return [text + ": " + name + ": a triangle on " + str(tri) + ", want three distinct positions"]
+    return []
+
 # r, of 1201 by 1201 posts from the south west corner of the tile, at lon,
 # lat, by bilinear interpolation.
 def bilinear(r, lon_, lat_):
@@ -1656,6 +1701,22 @@ def check_fetch(text, patches, names):
                     return [text + ": " + name + ": fetch " + str(v[5]) + " at " + str(v[:2]) + ", want " + str(round(want, 6))]
     if not count:
         return [text + ": no vertices of " + str(names)]
+    return []
+
+# The depth plane of the physical water patches of names, after the
+# fetch: 0 at a position that a patch of land shares, the shore, and 1
+# elsewhere.
+def check_depth(what, patches, names):
+    water = lambda name: name == "terrain_Water" or "_sea" in name or "_water" in name
+    land = {tuple(v[:2]) for (name, ps) in patches.items() if not water(name) for p in ps for v in p[4]}
+    for (name, ps) in patches.items():
+        if not any(name.endswith(n) for n in names):
+            continue
+        for (near, far, flags, depth, vertices) in ps:
+            for v in vertices:
+                want = 0 if tuple(v[:2]) in land else 1
+                if v[6] != want:
+                    return [what + ": " + name + ": depth " + str(v[6]) + " at " + str(v[:2]) + ", want " + str(want)]
     return []
 
 # The water of the XP12 rerun: the masked sea is physical WATER_COLOR_MASK
@@ -1695,6 +1756,8 @@ def check_xp12(top, build):
             if tilted:
                 errors.append("xp12: " + name + ": normal " + str(tilted[0][3:5]) + " at " + str(tilted[0][:2]) + ", want 0, 0")
                 break
+    errors += check_collapsed(text, patches)
+    errors += check_depth("xp12", patches, ("_sea.ter", "terrain_Water"))
     return errors + check_fetch(text, patches, ("_sea.ter", "terrain_Water"))
 
 # The rasters of the built DSF, which DSFTool writes beside the text, as
@@ -1928,7 +1991,10 @@ def test_tile(work, top, errors):
             errors.append(text + ": rasters " + str(defs) + ", want elevation, sea_level, soundscape, and the eight seasons, and sim/west 5")
         else:
             errors += check_rasters(text, gs, vertices, triangles)
-            errors += check_fetch(text, dsf_patches(text), ("terrain_Water",))
+            dsf = dsf_patches(text)
+            errors += check_fetch(text, dsf, ("terrain_Water",))
+            errors += check_collapsed(text, dsf)
+            errors += check_depth(text, dsf, ("terrain_Water",))
     xp12 = check("xp12", xp12_code, [], work, top, log)
     errors += xp12 or check_xp12(top, build)
     errors += check("overlay", overlay_code, [gs], work, top, log)
