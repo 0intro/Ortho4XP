@@ -436,14 +436,9 @@ def build_dsf(tile, download_queue):
 
     # 3 Recut water tris for XP12
     UI.vprint(1, "-> Adapting water triangles to XP12 requirements")
-    (nbr_nodes, node_coords, node_types, node_is_coast, nbr_tris, tri_idx, 
+    (nbr_nodes, node_coords, node_is_coast, nbr_tris, tri_idx,
         tri_types) = BATHY.recut_water_tris(node_coords, tri_idx, tri_types)
 
-    # 4 Compute bathymetry depth ratio bounds based on masks
-    UI.vprint(1, "-> Computing bathymetry depth ratio bounds based on distance masks")
-    node_bathy = BATHY.compute_depth_ratio_bounds_from_masks(
-                            nbr_nodes, node_coords, node_types, tile)
-    
     UI.vprint(1, "-> Computing point pools and texture requirements")
     
     # 5 Compute quadtree
@@ -752,11 +747,10 @@ def build_dsf(tile, download_queue):
                             node_icoords[5 * n : 5 * n + 5]
                         )
                         # TODO (improve fetch values)
-                        ratio_bathy = BATHY.set_depth_ratio(n, node_is_coast,
-                                                            node_bathy, tile)
                         ratio_fetch = 1
+                        depth = 0 if node_is_coast[n] else 65535
                         dsf_pools[idx_dsfpool].extend(
-                            (int(65535 * ratio_fetch), int(65535 * ratio_bathy), 
+                            (int(65535 * ratio_fetch), depth,
                              int(round(s * 65535)), int(round(t * 65535)))
                         )
                     len_textured_nodes += 1
@@ -799,12 +793,11 @@ def build_dsf(tile, download_queue):
                         node_icoords[5 * n : 5 * n + 3]
                     )
                     dsf_pools[idx_dsfpool].extend((32768, 32768))
-                    ratio_bathy = BATHY.set_depth_ratio(n, node_is_coast,
-                                                        node_bathy, tile)
                     # TODO improve bathy and fetch ratio variety
                     ratio_fetch = 1
+                    depth = 0 if node_is_coast[n] else 65535
                     dsf_pools[idx_dsfpool].extend((int(65535 * ratio_fetch),
-                                                   int(65535 * ratio_bathy))) 
+                                                   depth))
                     dsf_pool_length[idx_dsfpool] += 1
                 tri_p.extend((idx_dsfpool, pos_in_pool))
             if tri_p[0] == tri_p[2] == tri_p[4]:
@@ -968,11 +961,10 @@ def build_dsf(tile, download_queue):
                         node_icoords[5 * n : 5 * n + 3]
                     )
                     dsf_pools[idx_dsfpool].extend((32768, 32768))
-                    ratio_bathy = BATHY.set_depth_ratio(n, node_is_coast,
-                                                        node_bathy, tile)
                     ratio_fetch = 1
+                    depth = 0 if node_is_coast[n] else 65535
                     dsf_pools[idx_dsfpool].extend((int(65535 * ratio_fetch),
-                                                   int(65535 * ratio_bathy))) 
+                                                   depth))
                     dsf_pool_length[idx_dsfpool] += 1
                 tri_p.extend((idx_dsfpool, pos_in_pool))
             if tri_p[0] == tri_p[2] == tri_p[4]:

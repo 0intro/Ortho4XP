@@ -352,14 +352,6 @@ a particular server.",
         "default": True,
         "hint": "Will apply masking directly to dds textures (at the Build Imagery/DSF step) rather than using external png files. This doubles the file size of masked textures (dxt5 vs dxt1) but reduce the overall VRAM footprint (a matter of choice!)",
     },
-    "distance_masks_too": {
-        "type": bool,
-        "default": False,
-        "hint": "This will additionally build distance to coastline masks that \
-are used in Step 3 in order to improve the bathymetric profile (otherwise too \
-low res) and avoid steep walls close to piers or rocks. Masks_zl should not be \
-too low to grab these details.",
-    },
     "masks_use_DEM_too": {
         "type": bool,
         "default": False,
@@ -417,11 +409,6 @@ too low to grab these details.",
         "type": float,
         "default": 0.25,
         "hint": 'Inland water rendering is made of two layers : one bottom layer of "X-Plane water" and one overlay layer of orthophoto with constant level of transparency applied. The parameter ratio_water (values between 0 and 1) determines how much transparency is applied to the orthophoto. At zero, the orthophoto is fully opaque and X-Plane water cannot be seen ; at 1 the orthophoto is fully transparent and only the X-Plane water is seen.',
-    },
-    "ratio_bathy": {
-        "type": float,
-        "default": 1.0,
-        "hint": 'Bathymetry multiplier for near shore vertices. In the range [0,1].'
     },
     "normal_map_strength": {
         "type": float,
@@ -506,7 +493,6 @@ list_mask_vars = [
     "masking_mode",
     "use_masks_for_inland",
     "imprint_masks_to_dds",
-    "distance_masks_too",
     "masks_use_DEM_too",
     "masks_custom_extent",
 ]
@@ -515,7 +501,6 @@ list_dsf_vars = [
     "cover_extent",
     "cover_zl",
     "water_tech",
-    "ratio_bathy",
     "ratio_water",
     "overlay_lod",
     "sea_texture_blur",
