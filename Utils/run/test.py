@@ -400,6 +400,26 @@ if got != want:
 check_agents(agents)
 """
 
+# Cleaning level 2 removes the textures that no terrain file uses, and
+# keeps those of land, masked water, and overlay terrain alike.
+unwanted_code = """
+import os
+import O4_Config_Utils as CFG
+import O4_Tile_Utils as TILE
+tile = CFG.Tile(45, 5, "")
+tile.build_dir = "unwanted"
+for name in ("terrain", "textures"):
+    os.makedirs(os.path.join(tile.build_dir, name))
+for ter in ("1_2_A16_sea.ter", "1_2_B16_sea_overlay.ter", "1_2_C16_water_overlay.ter", "1_2_D16.ter"):
+    open(os.path.join(tile.build_dir, "terrain", ter), "w").close()
+for dds in ("1_2_A16.dds", "1_2_B16.dds", "1_2_C16.dds", "1_2_D16.dds", "1_2_E16.dds"):
+    open(os.path.join(tile.build_dir, "textures", dds), "w").close()
+TILE.remove_unwanted_textures(tile)
+left = sorted(os.listdir(os.path.join(tile.build_dir, "textures")))
+if left != ["1_2_A16.dds", "1_2_B16.dds", "1_2_C16.dds", "1_2_D16.dds"]:
+    sys.exit("textures left " + str(left) + ", want all but 1_2_E16.dds")
+"""
+
 # Runs the script named by its first argument, with the rest as arguments,
 # under a German locale, which groups the thousands of {:n} with periods.
 # The first locale that this system has wins. Tcl sets the numeric locale
@@ -1431,6 +1451,7 @@ def test_tile(work, top, errors):
     errors += check("opentopography", opentopography_code, [], work, top, log)
     errors += check("viewfinder", viewfinder_code, [], work, top, log)
     errors += check("community", community_code, [], work, top, log)
+    errors += check("unwanted", unwanted_code, [], work, top, log)
     errors += check("extent", extent_code, [payload], work, top, log)
     if os.path.exists(os.path.join(top, "pwned")):
         errors.append("a config or provider file ran code")
