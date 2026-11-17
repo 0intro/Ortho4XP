@@ -1,5 +1,6 @@
 import array
 import numpy
+import O4_UI_Utils as UI
 
 def recut_water_tris(node_coords, tri_idx, tri_types):
 
@@ -164,3 +165,181 @@ def recut_water_tris(node_coords, tri_idx, tri_types):
 
     return (nbr_nodes, node_coords, node_is_coast,
             nbr_tris, tri_idx, tri_types)
+
+
+# The elevation and sea_level rasters of a DSF hold 1201 by 1201 posts,
+# every 1/1200 of a degree from the south west corner of the tile, row 0
+# to the south, as those of X-Plane's Global Scenery do. Coordinates below
+# are in units of 1/1200 of a degree from that corner.
+posts = 1201
+step = 1200
+
+
+def boxes(x, y, tri_idx, n, offset, margin, chunk=1 << 21):
+    # Yields, in chunks, the points (i + offset, j + offset) of an n by n
+    # grid in the bounding box of each triangle, grown by margin, as the
+    # arrays (t, i, j) of the triangle and of the point.
+    tx = x[tri_idx].reshape(-1, 3)
+    ty = y[tri_idx].reshape(-1, 3)
+    eps = 1e-9
+    i0 = numpy.maximum(numpy.ceil(tx.min(1) - offset - margin - eps), 0)
+    i1 = numpy.minimum(numpy.floor(tx.max(1) - offset + margin + eps), n - 1)
+    j0 = numpy.maximum(numpy.ceil(ty.min(1) - offset - margin - eps), 0)
+    j1 = numpy.minimum(numpy.floor(ty.max(1) - offset + margin + eps), n - 1)
+    w = numpy.maximum(i1 - i0 + 1, 0).astype(numpy.int64)
+    h = numpy.maximum(j1 - j0 + 1, 0).astype(numpy.int64)
+    (i0, j0) = (i0.astype(numpy.int64), j0.astype(numpy.int64))
+    count = w * h
+    cum = numpy.cumsum(count)
+    start = 0
+    while start < len(count):
+        base = cum[start - 1] if start else 0
+        end = int(numpy.searchsorted(cum, base + chunk, side="right"))
+        end = min(max(end, start + 1), len(count))
+        c = count[start:end]
+        t = numpy.repeat(numpy.arange(start, end), c)
+        k = numpy.arange(len(t)) - numpy.repeat(numpy.cumsum(c) - c, c)
+        yield (t, i0[t] + k % w[t], j0[t] + k // w[t])
+        start = end
+
+
+def inside(x, y, tri_idx, t, px, py):
+    # The barycentric weights of the points (px, py) in their triangles t,
+    # and whether each point lies in its triangle.
+    a = tri_idx[3 * t]
+    b = tri_idx[3 * t + 1]
+    c = tri_idx[3 * t + 2]
+    d = (y[b] - y[c]) * (x[a] - x[c]) + (x[c] - x[b]) * (y[a] - y[c])
+    with numpy.errstate(divide="ignore", invalid="ignore"):
+        l0 = ((y[b] - y[c]) * (px - x[c]) + (x[c] - x[b]) * (py - y[c])) / d
+        l1 = ((y[c] - y[a]) * (px - x[c]) + (x[a] - x[c]) * (py - y[c])) / d
+        l2 = 1 - l0 - l1
+    eps = -1e-9
+    ok = (d != 0) & (l0 >= eps) & (l1 >= eps) & (l2 >= eps)
+    return (l0, l1, l2, ok)
+
+
+def nearest(x, y, z, tri_idx, t, px, py):
+    # The height of the point of each triangle t nearest to (px, py), and
+    # its distance: inside the triangle, by its barycentric weights, and
+    # beyond, along its nearest edge.
+    (l0, l1, l2, ok) = inside(x, y, tri_idx, t, px, py)
+    (a, b, c) = (tri_idx[3 * t], tri_idx[3 * t + 1], tri_idx[3 * t + 2])
+    with numpy.errstate(invalid="ignore"):
+        h = numpy.where(ok, l0 * z[a] + l1 * z[b] + l2 * z[c], 0.0)
+    d = numpy.where(ok, 0.0, numpy.inf)
+    for (p, q) in ((a, b), (b, c), (c, a)):
+        (dx, dy) = (x[q] - x[p], y[q] - y[p])
+        length = dx * dx + dy * dy
+        with numpy.errstate(divide="ignore", invalid="ignore"):
+            s = ((px - x[p]) * dx + (py - y[p]) * dy) / length
+        s = numpy.where(length > 0, numpy.clip(s, 0, 1), 0.0)
+        e = numpy.hypot(px - x[p] - s * dx, py - y[p] - s * dy)
+        closer = ~ok & (e < d)
+        d = numpy.where(closer, e, d)
+        h = numpy.where(closer, z[p] + s * (z[q] - z[p]), h)
+    return (h, d)
+
+
+def rasterize(node_coords, tri_idx, tri_types, lat, lon):
+    # Returns the height of the mesh at each post, the cells of 1/1200 of
+    # a degree whose centres lie in its water triangles, and at each post
+    # the lowest water surface within one post, inf where there is none.
+    x = (node_coords[0::5] - lon) * step
+    y = (node_coords[1::5] - lat) * step
+    z = node_coords[2::5]
+    tri_idx = numpy.asarray(tri_idx, dtype=numpy.int64)
+    elevation = numpy.full(posts * posts, numpy.nan)
+    for (t, i, j) in boxes(x, y, tri_idx, posts, 0.0, 0.0):
+        (l0, l1, l2, ok) = inside(x, y, tri_idx, t, i, j)
+        (t, l0, l1, l2) = (t[ok], l0[ok], l1[ok], l2[ok])
+        elevation[j[ok] * posts + i[ok]] = (
+            l0 * z[tri_idx[3 * t]]
+            + l1 * z[tri_idx[3 * t + 1]]
+            + l2 * z[tri_idx[3 * t + 2]]
+        )
+    elevation = elevation.reshape(posts, posts)
+    water = numpy.flatnonzero(numpy.asarray(tri_types) != 0)
+    wet_idx = tri_idx.reshape(-1, 3)[water].ravel()
+    cells = numpy.zeros(step * step, dtype=bool)
+    for (t, i, j) in boxes(x, y, wet_idx, step, 0.5, 0.0):
+        ok = inside(x, y, wet_idx, t, i + 0.5, j + 0.5)[3]
+        cells[j[ok] * step + i[ok]] = True
+    surface = numpy.full(posts * posts, numpy.inf)
+    for (t, i, j) in boxes(x, y, wet_idx, posts, 0.0, 1.0):
+        (h, d) = nearest(x, y, z, wet_idx, t, i, j)
+        near = d <= 1
+        numpy.minimum.at(surface, j[near] * posts + i[near], h[near])
+    return (
+        elevation,
+        cells.reshape(step, step),
+        surface.reshape(posts, posts),
+    )
+
+
+def wet_posts(cells):
+    # A post is water when one of the four cells around it is, as in
+    # Laminar's water DEM.
+    c = numpy.pad(cells, 1)
+    return c[:-1, :-1] | c[:-1, 1:] | c[1:, :-1] | c[1:, 1:]
+
+
+def distance(wet):
+    # The distance in posts from each water post to the nearest other one,
+    # 0 at the others, by the single round of four sweeps of a first order
+    # Eikonal solver in which Laminar's CalcWaterBathymetry (DEMAlgs.cpp)
+    # computes it. A sweep visits the posts row by row, each from the
+    # values the sweep has already set before it, so the posts of one
+    # anti-diagonal go together. Beyond the grid lies nothing, as there.
+    (h, w) = wet.shape
+    d = numpy.full((h + 2, w + 2), numpy.inf)
+    d[1:-1, 1:-1] = numpy.where(wet, numpy.inf, 0.0)
+    for (sy, sx) in ((1, 1), (1, -1), (-1, -1), (-1, 1)):
+        v = d[::sy, ::sx]
+        for k in range(2, h + w + 1):
+            iy = numpy.arange(max(1, k - w), min(h, k - 1) + 1)
+            ix = k - iy
+            cur = v[iy, ix]
+            a = numpy.minimum(v[iy, ix - 1], v[iy, ix + 1])
+            b = numpy.minimum(v[iy - 1, ix], v[iy + 1, ix])
+            with numpy.errstate(invalid="ignore"):
+                e = numpy.abs(a - b)
+                new = numpy.where(
+                    e < 1,
+                    (a + b + numpy.sqrt(2 - e * e)) / 2,
+                    numpy.minimum(a, b) + 1,
+                )
+            v[iy, ix] = numpy.where(cur > 0, numpy.minimum(cur, new), cur)
+    return d[1:-1, 1:-1]
+
+
+def to_int16(r):
+    # X-Plane's tools truncate toward zero when they write a raster.
+    return numpy.clip(numpy.trunc(r), -32768, 32767).astype(numpy.int16)
+
+
+def floor(elevation, d, surface):
+    # The sea_level raster: each post lies min(50, 1 + 4 * (d - 1)) m below
+    # the surface of the water, as in CalcWaterBathymetry, which is the
+    # lowest water within one post, or the post itself beyond. The other
+    # posts, at d = 0, lie 1 m below it.
+    depth = numpy.minimum(50, 1 + 4 * numpy.maximum(0, d - 1))
+    return to_int16(numpy.minimum(elevation, surface) - depth)
+
+
+def rasters(node_coords, tri_idx, tri_types, lat, lon):
+    # Returns the elevation and sea_level rasters of the mesh, int16.
+    (elevation, cells, surface) = rasterize(
+        node_coords, tri_idx, tri_types, lat, lon
+    )
+    missing = numpy.isnan(elevation)
+    if missing.any():
+        UI.lvprint(
+            0,
+            "     ERROR: the mesh leaves",
+            int(missing.sum()),
+            "posts of the elevation raster uncovered.",
+        )
+        elevation[missing] = numpy.nanmean(elevation) if (~missing).any() else 0
+    elevation = to_int16(elevation)
+    return (elevation, floor(elevation, distance(wet_posts(cells)), surface))
