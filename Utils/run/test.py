@@ -131,10 +131,13 @@ scenery_dir = "C:\\Users\\Frédéric\\X-Plane 12 €\\Custom Scenery"
 # 7-Zip as Ortho4XP finds it, and on Windows, the 7-Zip installed in
 # Program Files when the one in Utils is missing. A copy in Utils that
 # cannot run is passed over, and a 7-Zip that fails to start gets an
-# error.
+# error. A Global Scenery DSF whose archive is damaged leaves nothing in
+# tmp.
 seven_zip_code = """
 import os
+import random
 import subprocess
+import O4_File_Names as FNAMES
 import O4_Overlay_Utils as OVL
 cmd = OVL.seven_zip()
 if not cmd:
@@ -174,6 +177,17 @@ if os.name != "nt":
         os.chmod(bundled, mode)
     if found == bundled:
         sys.exit(bundled + ": found while it cannot run")
+with open("+45+005.dsf", "wb") as f:
+    f.write(random.Random(1).randbytes(65536))
+subprocess.run([cmd, "a", "damaged.7z", "+45+005.dsf"], stdout = subprocess.DEVNULL, check = True)
+os.remove("+45+005.dsf")
+with open("damaged.7z", "rb") as f:
+    data = bytearray(f.read())
+data[100] ^= 0xff
+with open("damaged.7z", "wb") as f:
+    f.write(data)
+if OVL.unpacked_copy(os.path.abspath("damaged.7z"), 45, 5) is not None or os.path.exists(os.path.join(FNAMES.Tmp_dir, "+45+005.dsf")):
+    sys.exit("unpacked_copy: a damaged archive gave a copy, or left one in tmp")
 with open("not7z.txt", "w") as f:
     f.write("Ortho4XP")
 OVL.seven_zip = lambda: os.path.abspath("not7z.txt")
@@ -1332,19 +1346,15 @@ if not MESH.sort_mesh(tile):
     sys.exit("sort_mesh failed in " + repr(name))
 """
 
-# Steps 2.5 and 3 again with water_tech XP12, whose DSF goes to xp12.txt
-# in text, and which warns that the maps of the colour of X-Plane's water
-# are missing. The mask of the pond, inland water in the ZL 14 zone, holds
-# it as water at its centre, where lakes fade as the sea does.
+# Steps 2.5 and 3 again with water_tech XP11 + bathy, whose DSF goes to
+# variant.txt in text.
 # A twin of the node on the first corner of a triangle splits it into
 # itself and a triangle with two corners on one position, as two nodes
 # closer than a step of their pool give. That is done to the sea triangle
 # nearest the south west corner of the tile, whose ZL 12 texture takes no
 # mask, and to a triangle of inland water, which takes an overlay. The tile
 # config and the mesh go back as they were.
-xp12_code = """
-import contextlib
-import io
+variant_code = """
 import os
 import shutil
 import subprocess
@@ -1363,9 +1373,9 @@ from PIL import Image
 tile = CFG.Tile(45, 5, "")
 tile.read_from_config()
 cfg = os.path.join(tile.build_dir, "Ortho4XP_+45+005.cfg")
-shutil.copy(cfg, cfg + ".xp12")
+shutil.copy(cfg, cfg + ".variant")
 mesh = FNAMES.mesh_file(tile.build_dir, 45, 5)
-shutil.copy(mesh, mesh + ".xp12")
+shutil.copy(mesh, mesh + ".variant")
 with open(mesh) as f:
     lines = f.read().split("\\n")
 def twin(j):
@@ -1390,37 +1400,22 @@ twin(min((j for j in range(len(tris)) if int(tris[j][3]) & 6), key = lambda j: s
 twin(next(j for j in range(len(tris)) if int(tris[j][3]) & 7 == 1))
 with open(mesh, "w") as f:
     f.write("\\n".join(lines))
-tile.water_tech = "XP12"
+tile.water_tech = "XP11 + bathy"
 masks = FNAMES.mask_dir(45, 5)
-shutil.copytree(masks, masks + ".xp12")
-out = io.StringIO()
+shutil.copytree(masks, masks + ".variant")
 try:
     if not MASK.build_masks(tile):
         sys.exit("Step 2.5 failed")
-    (lat, lon) = (45.15, 5.151)
-    (til_x, til_y) = GEO.wgs84_to_orthogrid(lat, lon, tile.mask_zl)
-    (px, py) = GEO.wgs84_to_pix(lat, lon, tile.mask_zl)
-    (px0, py0) = GEO.wgs84_to_pix(*GEO.gtile_to_wgs84(til_x, til_y, tile.mask_zl), tile.mask_zl)
-    with Image.open(os.path.join(masks, FNAMES.legacy_mask(til_x, til_y))) as im:
-        value = im.getpixel((px - px0, py - py0))
-    if value != 0:
-        sys.exit("pond: mask " + str(value) + " at its centre, want 0")
-    with contextlib.redirect_stdout(out):
-        built = TILE.build_tile(tile)
+    built = TILE.build_tile(tile)
 finally:
-    os.replace(cfg + ".xp12", cfg)
-    os.replace(mesh + ".xp12", mesh)
+    os.replace(cfg + ".variant", cfg)
+    os.replace(mesh + ".variant", mesh)
     shutil.rmtree(masks)
-    os.replace(masks + ".xp12", masks)
-    print(out.getvalue())
+    os.replace(masks + ".variant", masks)
 if not built:
     sys.exit("Step 3 failed")
-# The fake Global Scenery lies outside an X-Plane, without its maps of the
-# colour of the water.
-if "the maps of the colour of X-Plane's water are missing" not in out.getvalue():
-    sys.exit("Step 3: no warning for the missing maps of the colour of X-Plane's water")
 dsf = os.path.join(tile.build_dir, "Earth nav data", "+40+000", "+45+005.dsf")
-if subprocess.run([OVL.dsftool_cmd.strip(), "-dsf2text", dsf, "xp12.txt"], stdout = subprocess.DEVNULL).returncode:
+if subprocess.run([OVL.dsftool_cmd.strip(), "-dsf2text", dsf, "variant.txt"], stdout = subprocess.DEVNULL).returncode:
     sys.exit(dsf + ": DSFTool cannot read it")
 """
 
@@ -1497,6 +1492,26 @@ finally:
         os.remove(os.path.join(textures, f))
 if errors:
     sys.exit("\\n".join(errors))
+"""
+
+# The mask of the pond, inland water in the ZL 14 zone, holds it as water
+# at its centre in XP12 water, where lakes fade as the sea does.
+pond_code = """
+import os
+from PIL import Image
+import O4_Config_Utils as CFG
+import O4_File_Names as FNAMES
+import O4_Geo_Utils as GEO
+tile = CFG.Tile(45, 5, "")
+tile.read_from_config()
+(lat, lon) = (45.15, 5.151)
+(til_x, til_y) = GEO.wgs84_to_orthogrid(lat, lon, tile.mask_zl)
+(px, py) = GEO.wgs84_to_pix(lat, lon, tile.mask_zl)
+(px0, py0) = GEO.wgs84_to_pix(*GEO.gtile_to_wgs84(til_x, til_y, tile.mask_zl), tile.mask_zl)
+with Image.open(os.path.join(FNAMES.mask_dir(45, 5), FNAMES.legacy_mask(til_x, til_y))) as im:
+    value = im.getpixel((px - px0, py - py0))
+if value != 0:
+    sys.exit("pond: mask " + str(value) + " at its centre, want 0")
 """
 
 # Step 3 with skip_downloads, in both water techniques: the masked sea is
@@ -2144,12 +2159,12 @@ gui.config_window.v_["masks_width"].set("[1, 2")
 gui.config_window.v_["mesh_zl"].set("17")
 gui.config_window.v_["use_masks_for_inland"].set("True")
 gui.config_window.v_["custom_bathymetry"].set("floor.tif")
-gui.config_window.v_["water_tech"].set("XP12")
+gui.config_window.v_["water_tech"].set("XP11 + bathy")
 gui.config_window.apply_changes()
 if TILE.skip_downloads is not False or CFG.masks_width != 100:
     errors.append("config window: kept invalid values")
 if (CFG.get_var("mesh_zl") != 17 or CFG.get_var("use_masks_for_inland") is not True
-        or CFG.get_var("custom_bathymetry") != "floor.tif" or CFG.get_var("water_tech") != "XP12"):
+        or CFG.get_var("custom_bathymetry") != "floor.tif" or CFG.get_var("water_tech") != "XP11 + bathy"):
     errors.append("config window: dropped valid values")
 # Dragging the tile map with the right button moves it. Aqua Tk calls
 # the right button 2 before Tk 8.7, and 3 from then on.
@@ -2353,10 +2368,11 @@ def check_depth(what, patches, names):
                     return [what + ": " + name + ": depth " + str(v[6]) + " at " + str(v[:2]) + ", want " + str(want)]
     return []
 
-# The water of the XP12 rerun: the masked sea is physical WATER_COLOR_MASK
-# terrain, whose vertices carry fetch, depth, and the texture coordinates
-# after their normals, while the lake, below mask_zl, keeps its overlay.
-def check_xp12(top, build):
+# The water of XP12, the main build: the masked sea is physical
+# WATER_COLOR_MASK terrain, whose vertices carry fetch, depth, and the
+# texture coordinates after their normals, while the lake, below mask_zl,
+# keeps its overlay.
+def check_xp12(text, build):
     errors = []
     terrain = os.path.join(build, "terrain")
     ters = sorted(os.listdir(terrain))
@@ -2373,7 +2389,8 @@ def check_xp12(top, build):
     if not [t for t in ters if t.endswith("_water_overlay.ter")]:
         errors.append("xp12: no _water_overlay.ter for the lake")
     # Their textures fade from the photo into the colour of X-Plane's water,
-    # here that of any.png, 13, 32, 51, as DXT1.
+    # here that of any.png, 13, 32, 51, as DXT1, which holds it within 2
+    # levels.
     for t in sea:
         with open(os.path.join(terrain, t)) as f:
             dds = [line.split()[1] for line in f if line.startswith("BASE_TEX_NOWRAP")][0]
@@ -2381,10 +2398,9 @@ def check_xp12(top, build):
         with open(dds, "rb") as f:
             fourcc = f.read(88)[84:]
         a = numpy.asarray(Image.open(dds).convert("RGB").reduce(8), numpy.int16)
-        water = (numpy.abs(a - (13, 32, 51)).max(axis = 2) <= 8).mean()
+        water = (numpy.abs(a - (13, 32, 51)).max(axis = 2) <= 2).mean()
         if fourcc != b"DXT1" or water < 0.1:
             errors.append("xp12: " + dds + ": " + fourcc.decode("latin-1") + " with " + str(round(100 * water, 1)) + "% of the colour of X-Plane's water, want DXT1 and 10% or more")
-    text = os.path.join(top, "xp12.txt")
     patches = dsf_patches(text)
     for (name, ps) in patches.items():
         if name.endswith("_sea.ter"):
@@ -2415,6 +2431,38 @@ def check_xp12(top, build):
         errors.append("xp12: no vertex of a _water_overlay.ter in the lake, want its overlay")
     errors += check_depth("xp12", patches, ("_sea.ter", "terrain_Water"))
     return errors + check_fetch(text, patches, ("_sea.ter", "terrain_Water"))
+
+# The water of XP11 + bathy, the variant: the masked sea is overlays of
+# imprinted DXT5 textures over physical terrain_Water, and the lake an
+# overlay whose BORDER_TEX is water_transition.png. The depth plane of
+# terrain_Water is 0 at the shore and 1 elsewhere.
+def check_variant(top, build):
+    errors = []
+    terrain = os.path.join(build, "terrain")
+    ters = sorted(os.listdir(terrain))
+    sea = [t for t in ters if t.endswith("_sea_overlay.ter")]
+    if not sea or [t for t in ters if t.endswith("_sea.ter")]:
+        errors.append("variant: terrain " + str([t for t in ters if "_sea" in t]) + ", want the masked sea in overlays alone")
+    if not [t for t in ters if t.endswith("_water_overlay.ter")]:
+        errors.append("variant: no _water_overlay.ter for the lake")
+    for t in sea:
+        with open(os.path.join(terrain, t)) as f:
+            lines = f.read().split("\n")
+        dds = os.path.normpath(os.path.join(terrain, [l.split()[1] for l in lines if l.startswith("BASE_TEX_NOWRAP")][0]))
+        with open(dds, "rb") as f:
+            fourcc = f.read(88)[84:]
+        if [l for l in lines if l.startswith("BORDER_TEX")] or fourcc != b"DXT5":
+            errors.append("variant: " + t + ": " + fourcc.decode("latin-1") + ", want the mask imprinted in a DXT5 and no BORDER_TEX")
+            break
+    text = os.path.join(top, "variant.txt")
+    patches = dsf_patches(text)
+    for (name, ps) in patches.items():
+        want = (2, 9) if name.endswith("_overlay.ter") else (1, 7) if name == "terrain_Water" else None
+        if want and any((flags, depth) != want for (near, far, flags, depth, vertices) in ps):
+            errors.append("variant: " + name + ": a patch with other flags and planes than " + str(want))
+    errors += check_collapsed(text, patches)
+    errors += check_depth("variant", patches, ("terrain_Water",))
+    return errors + check_fetch(text, patches, ("terrain_Water",))
 
 # The rasters of the built DSF, which DSFTool writes beside the text, as
 # text.<name>.raw: the soundscape and the season of the Global Scenery,
@@ -2501,17 +2549,19 @@ def test_tile(work, top, errors):
         f.write("ovl_exclude_pol=" + payload_list + "\n")
         f.write("custom_overlay_src=" + os.path.relpath(gs, top) + "\n")
         f.write("custom_scenery_dir=" + scenery_dir + "\n")
-    errors += check("globalscenery", global_scenery_code, [gs], work, top, os.path.join(work, "Ortho4XP.log"))
+    no_gs = check("globalscenery", global_scenery_code, [gs], work, top, os.path.join(work, "Ortho4XP.log"))
+    errors += no_gs
     errors += check("rasters", rasters_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
     errors += check("waterpoints", water_points_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
     errors += check("watercolour", water_colour_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
+    errors += check("masks", masks_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
+    errors += check("window", window_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
     errors += check("triangle4xp", triangle4xp_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
     errors += check("splits", splits_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
     errors += check("split", split_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
     errors += check("recut", recut_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
-    errors += check("masks", masks_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
-    errors += check("window", window_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
-    if errors:
+    # The build reads the Global Scenery that globalscenery makes.
+    if no_gs:
         return errors
 
     log = os.path.join(work, "Ortho4XP.log")
@@ -2531,6 +2581,10 @@ def test_tile(work, top, errors):
             errors.append(cfg + ": no warning for " + line + ", which holds code")
     if "fake headers for provider EVIL not valid" not in out:
         errors.append("EVIL.lay: no warning for headers that hold code")
+    # The fake Global Scenery lies outside an X-Plane, without its maps of
+    # the colour of the water.
+    if "the maps of the colour of X-Plane's water are missing" not in out:
+        errors.append("Step 3: no warning for the missing maps of the colour of X-Plane's water")
     # The live check of the providers fails on a provider that Ortho4XP
     # rejects.
     r = subprocess.run([sys.executable, os.path.join("Utils", "run", "providers.py"), "EVIL"], cwd = top, env = offline_env(), capture_output = True, text = True, timeout = 300)
@@ -2619,8 +2673,8 @@ def test_tile(work, top, errors):
     for path in textures:
         with open(path, "rb") as f:
             formats.setdefault(f.read(88)[84:].decode("latin-1"), []).append(path)
-    if sorted(formats) != ["DXT1", "DXT5"]:
-        errors.append("textures: formats " + str(sorted(formats)) + ", want DXT1 and DXT5")
+    if sorted(formats) != ["DXT1"]:
+        errors.append("textures: formats " + str(sorted(formats)) + ", want DXT1, as XP12 water fades masked textures")
     if len(paths) != 256 * len(textures) or len(set(paths)) != len(paths):
         errors.append("server: " + str(len(paths)) + " requests (" + str(len(set(paths))) + " distinct) for " + str(len(textures)) + " textures, want 256 each")
     # The texture Y_X_<provider><zl>.dds holds the 16 x 16 tiles of zl from
@@ -2635,7 +2689,9 @@ def test_tile(work, top, errors):
         errors.append("server: " + str(len(got - want)) + " tiles requested out of the textures, " + str(len(want - got)) + " missing, such as " + str(sorted(got ^ want)[:3]))
     if any(not str(agent).startswith("Ortho4XP/") for agent in agents):
         errors.append("server: user agents " + str(sorted(map(str, agents))) + ", want Ortho4XP/")
-    for path in formats.get("DXT1", [])[:1]:
+    # The textures of the masked sea fade into the colour of the water.
+    faded = {os.path.join(build, "textures", t[:-len("_sea.ter")] + ".dds") for t in os.listdir(os.path.join(build, "terrain")) if t.endswith("_sea.ter")}
+    for path in [p for p in formats.get("DXT1", []) if p not in faded][:1]:
         mean = numpy.asarray(Image.open(path).convert("RGB"), dtype = float).mean(axis = (0, 1))
         if numpy.abs(mean - served).max() > 6:
             errors.append(path + ": mean color " + str(mean.round(1)) + ", want " + str(served.round(1)))
@@ -2680,13 +2736,11 @@ def test_tile(work, top, errors):
             errors.append(text + ": rasters " + str(defs) + ", want elevation, sea_level, soundscape, and spr1, and sim/west 5")
         else:
             errors += check_rasters(text, gs, vertices, triangles)
-            dsf = dsf_patches(text)
-            errors += check_fetch(text, dsf, ("terrain_Water",))
-            errors += check_collapsed(text, dsf)
-            errors += check_depth(text, dsf, ("terrain_Water",))
-    xp12 = check("xp12", xp12_code, [], work, top, log)
-    errors += xp12 or check_xp12(top, build)
+            errors += check_xp12(text, build)
+    errors += check("pond", pond_code, [], work, top, log)
     errors += check("rebuild", rebuild_code, [], work, top, log)
+    variant = check("variant", variant_code, [], work, top, log)
+    errors += variant or check_variant(top, build)
     errors += check("streamer", streamer_code, [], work, top, log)
     errors += check("lakemask", lake_mask_code, [], work, top, log)
     bathymetry = check("bathymetry", bathymetry_code, [], work, top, log)
