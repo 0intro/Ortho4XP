@@ -7,11 +7,6 @@ from math import atan, ceil, floor
 import numpy
 from PIL import Image, ImageDraw, ImageFilter, ImageOps
 
-try:
-    import skfmm
-    has_skfmm = True
-except ImportError:
-    has_skfmm = False
 import O4_DEM_Utils as DEM
 import O4_File_Names as FNAMES
 import O4_UI_Utils as UI
@@ -128,12 +123,6 @@ def build_masks(tile, for_imagery=False):
     (dico_sea, dico_inland) = water_tris
 
     UI.vprint(1, "-> Construction of the masks")
-    if tile.distance_masks_too and not has_skfmm:
-        UI.lvprint(
-            0,
-            "WARNING: distance_masks_too needs scikit-fmm, which is not",
-            "installed. Skipping the distance masks.",
-        )
 
     if tile.masks_use_DEM_too:
         try:
@@ -194,27 +183,7 @@ def build_masks(tile, for_imagery=False):
             mask_im.save(os.path.join(
                 dest_dir, FNAMES.legacy_mask(til_x, til_y)))
             del blured_mask
-            
-            # Distance masks for bathymetry cut-off
-            if (tile.distance_masks_too and has_skfmm):
-                pre_mask = (pre_mask > 0).astype(float) * 2 - 1
-                band = 255 / 2**(16 - tile.mask_zl)
-                dist_array = skfmm.distance(pre_mask, narrow = band)
-                if (isinstance(dist_array, numpy.ma.core.MaskedArray)):
-                    dist_array = dist_array.filled(-99999)
-                dist_array[pre_mask > 0] = 0
-                del(pre_mask)
-                dist_array = dist_array[1024 : 4096 + 1024, 1024 : 4096 + 1024]
-                dist_array = dist_array * (2**(16 - tile.mask_zl))
-                dist_array = numpy.minimum(-numpy.minimum(dist_array, 0), 255)
-                dist_array = dist_array.astype(numpy.uint8)
-                masks_im = Image.fromarray(dist_array)
-                masks_im.save(os.path.join(
-                    dest_dir, FNAMES.distance_mask(til_x, til_y)))
-                UI.vprint(1, "   Created", FNAMES.legacy_mask(til_x, til_y),
-                "and", FNAMES.distance_mask(til_x, til_y))
-            else:
-                UI.vprint(1, "   Created", FNAMES.legacy_mask(til_x, til_y))
+            UI.vprint(1, "   Created", FNAMES.legacy_mask(til_x, til_y))
         return 1
     #################################
     
@@ -268,14 +237,18 @@ def delete_old_masks_in_tile(tile, dest_dir):
     (til_x_max, til_y_max) = GEO.wgs84_to_orthogrid(
         tile.lat, tile.lon + 1, tile.mask_zl)
 
+    # With them go the masks of the distance to the shore that 1.40 wrote
+    # beside them for distance_masks_too.
     for til_x in range(til_x_min, til_x_max + 1, 16):
         for til_y in range(til_y_min, til_y_max + 1, 16):
-            try:
-                os.remove(
-                    os.path.join(dest_dir, FNAMES.legacy_mask(til_x, til_y))
-                )
-            except:
-                pass
+            for name in (
+                FNAMES.legacy_mask(til_x, til_y),
+                str(til_y) + "_" + str(til_x) + "_dist.png",
+            ):
+                try:
+                    os.remove(os.path.join(dest_dir, name))
+                except:
+                    pass
 ################################################################################
     
 ################################################################################
