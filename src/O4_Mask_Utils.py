@@ -386,6 +386,16 @@ def build_custom_pre_mask(til_x, til_y, sea_level, tile):
 ################################################################################
 
 ################################################################################
+def mask_keys(til_x, til_y, a, b):
+    # The masks that a water triangle reaches: its own, til_x, til_y, and
+    # those beside it when its centre lies in the outer quarter of its mask,
+    # a and b being the quarter of its centre across and down.
+    dx = {0: (0, -16), 3: (0, 16)}.get(a, (0,))
+    dy = {0: (0, -16), 3: (0, 16)}.get(b, (0,))
+    return [(til_x + x, til_y + y) for x in dx for y in dy]
+
+
+################################################################################
 def record_water_tris(tile):
     mesh_list = []
     for close_lat in range(tile.lat - 1, tile.lat + 2):
@@ -489,86 +499,10 @@ def record_water_tris(tile):
             )
             a = (til_x2 // 16) % 4
             b = (til_y2 // 16) % 4
-            if (til_x, til_y) in dico_sea:
-                dico_sea[(til_x, til_y)].append(
+            for key in mask_keys(til_x, til_y, a, b):
+                dico_sea.setdefault(key, []).append(
                     (lat1, lon1, lat2, lon2, lat3, lon3)
                 )
-            else:
-                dico_sea[(til_x, til_y)] = [
-                    (lat1, lon1, lat2, lon2, lat3, lon3)
-                ]
-            if a == 0:
-                if (til_x - 16, til_y) in dico_sea:
-                    dico_sea[(til_x - 16, til_y)].append(
-                        (lat1, lon1, lat2, lon2, lat3, lon3)
-                    )
-                else:
-                    dico_sea[(til_x - 16, til_y)] = [
-                        (lat1, lon1, lat2, lon2, lat3, lon3)
-                    ]
-                if b == 0:
-                    if (til_x - 16, til_y - 16) in dico_sea:
-                        dico_sea[(til_x - 16, til_y - 16)].append(
-                            (lat1, lon1, lat2, lon2, lat3, lon3)
-                        )
-                    else:
-                        dico_sea[(til_x - 16, til_y - 16)] = [
-                            (lat1, lon1, lat2, lon2, lat3, lon3)
-                        ]
-                elif b == 3:
-                    if (til_x - 16, til_y + 16) in dico_sea:
-                        dico_sea[(til_x - 16, til_y + 16)].append(
-                            (lat1, lon1, lat2, lon2, lat3, lon3)
-                        )
-                    else:
-                        dico_sea[(til_x - 16, til_y + 16)] = [
-                            (lat1, lon1, lat2, lon2, lat3, lon3)
-                        ]
-            elif a == 3:
-                if (til_x + 16, til_y) in dico_sea:
-                    dico_sea[(til_x + 16, til_y)].append(
-                        (lat1, lon1, lat2, lon2, lat3, lon3)
-                    )
-                else:
-                    dico_sea[(til_x + 16, til_y)] = [
-                        (lat1, lon1, lat2, lon2, lat3, lon3)
-                    ]
-                if b == 0:
-                    if (til_x + 16, til_y - 16) in dico_sea:
-                        dico_sea[(til_x + 16, til_y - 16)].append(
-                            (lat1, lon1, lat2, lon2, lat3, lon3)
-                        )
-                    else:
-                        dico_sea[(til_x + 16, til_y - 16)] = [
-                            (lat1, lon1, lat2, lon2, lat3, lon3)
-                        ]
-                elif b == 3:
-                    if (til_x + 16, til_y + 16) in dico_sea:
-                        dico_sea[(til_x + 16, til_y + 16)].append(
-                            (lat1, lon1, lat2, lon2, lat3, lon3)
-                        )
-                    else:
-                        dico_sea[(til_x + 16, til_y + 16)] = [
-                            (lat1, lon1, lat2, lon2, lat3, lon3)
-                        ]
-            if b == 0:
-                if (til_x, til_y - 16) in dico_sea:
-                    dico_sea[(til_x, til_y - 16)].append(
-                        (lat1, lon1, lat2, lon2, lat3, lon3)
-                    )
-                else:
-                    dico_sea[(til_x, til_y - 16)] = [
-                        (lat1, lon1, lat2, lon2, lat3, lon3)
-                    ]
-            elif b == 3:
-                if (til_x, til_y + 16) in dico_sea:
-                    dico_sea[(til_x, til_y + 16)].append(
-                        (lat1, lon1, lat2, lon2, lat3, lon3)
-                    )
-                else:
-                    dico_sea[(til_x, til_y + 16)] = [
-                        (lat1, lon1, lat2, lon2, lat3, lon3)
-                    ]
         f_mesh.close()
         if not tile.use_masks_for_inland:
             UI.vprint(2, "   Taking care of inland water near shoreline")
