@@ -568,6 +568,12 @@ class Tile:
         for var in list_tile_vars:
             setattr(self, var, get_var(var))
 
+    @property
+    def imprint(self):
+        # Whether the masks of the water go into the alpha channel of the
+        # DDS textures, rather than into PNG files beside them.
+        return self.imprint_masks_to_dds
+
     def make_dirs(self):
         if os.path.isdir(self.build_dir):
             if not os.access(self.build_dir, os.W_OK):
