@@ -350,7 +350,7 @@ a particular server.",
     "imprint_masks_to_dds": {
         "type": bool,
         "default": True,
-        "hint": "Will apply masking directly to dds textures (at the Build Imagery/DSF step) rather than using external png files. This doubles the file size of masked textures (dxt5 vs dxt1) but reduce the overall VRAM footprint (a matter of choice!)",
+        "hint": "Will apply masking directly to dds textures (at the Build Imagery/DSF step) rather than using external png files. This doubles the file size of masked textures (dxt5 vs dxt1) but reduce the overall VRAM footprint (a matter of choice!) It applies to the XP11 + bathy water_tech. With XP12, the masks fade the orthophoto into the colour of X-Plane's own water inside dxt1 textures, from the maps of X-Plane beside the Global Scenery of custom_overlay_src.",
     },
     "masks_use_DEM_too": {
         "type": bool,
@@ -571,9 +571,22 @@ class Tile:
     @property
     def imprint(self):
         # Whether the masks of the water go into the alpha channel of the
-        # DDS textures, rather than into PNG files beside them, which the
-        # textures need when they come from elsewhere.
-        return self.imprint_masks_to_dds and not TILE.skip_downloads
+        # DDS textures, which the overlays of XP11 water read, rather than
+        # into PNG files beside them, which the textures need when they
+        # come from elsewhere.
+        return (
+            self.imprint_masks_to_dds
+            and self.water_tech == "XP11 + bathy"
+            and not TILE.skip_downloads
+        )
+
+    @property
+    def water_color_mask(self):
+        # Whether masked water is WATER_COLOR_MASK terrain, the water of
+        # X-Plane 12 whose colour is the RGB of the texture. Step 3 then
+        # fades the photo into the colour of X-Plane's own water as the mask
+        # goes from white to black, in the textures it converts.
+        return self.water_tech == "XP12" and not TILE.skip_downloads
 
     def make_dirs(self):
         if os.path.isdir(self.build_dir):

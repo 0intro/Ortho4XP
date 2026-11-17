@@ -1,9 +1,12 @@
 import glob
+import math
 import time
 import os
 import shutil
 import sys
 import subprocess
+import numpy
+from PIL import Image
 import O4_File_Names as FNAMES
 import O4_UI_Utils as UI
 
@@ -96,6 +99,74 @@ def global_scenery_dsf(lat, lon):
         if os.path.exists(demo):
             return demo
     return os.path.join(custom_overlay_src, name)
+
+
+################################################################################
+# The colour of X-Plane 12's water where it has no map of it, that of
+# Resources/bitmaps/world/water/any.png.
+open_sea_colour = (13, 32, 51)
+# The maps of water_colour_map by tile, which Step 3 empties as it starts.
+water_colour_maps = {}
+
+
+def water_colour_map(lat, lon):
+    # X-Plane 12's map of the colour of its water over the tile at lat,
+    # lon, as an array of RGB bytes in rows from the north, or None. The
+    # maps lie in Resources/bitmaps/world/water of the X-Plane that holds
+    # the Global Scenery of custom_overlay_src.
+    if (lat, lon) not in water_colour_maps:
+        root = os.path.dirname(
+            os.path.dirname(os.path.normpath(custom_overlay_src))
+        )
+        name = os.path.join(
+            root,
+            "Resources",
+            "bitmaps",
+            "world",
+            "water",
+            FNAMES.round_latlon(lat, lon),
+            FNAMES.short_latlon(lat, lon) + ".png",
+        )
+        rgb = None
+        if custom_overlay_src and os.path.isfile(name):
+            try:
+                rgb = numpy.asarray(Image.open(name).convert("RGB"))
+            except OSError as e:
+                UI.vprint(1, "   WARNING: could not read", name + ":", e)
+        water_colour_maps[(lat, lon)] = rgb
+    return water_colour_maps[(lat, lon)]
+
+
+def water_colour(lat, lon):
+    # The colour of X-Plane 12's own water at lat, lon, numbers or arrays
+    # that broadcast together, sampled bilinearly from the centres of the
+    # pixels of its maps, as RGB along a last axis.
+    (lat, lon) = numpy.broadcast_arrays(
+        numpy.asarray(lat, float), numpy.asarray(lon, float)
+    )
+    out = numpy.empty(lat.shape + (3,))
+    (tlat, tlon) = (numpy.floor(lat), numpy.floor(lon))
+    tiles = numpy.stack((tlat.ravel(), tlon.ravel()), axis=1)
+    for (a, b) in numpy.unique(tiles, axis=0):
+        at = (tlat == a) & (tlon == b)
+        rgb = water_colour_map(int(a), int(b))
+        if rgb is None:
+            out[at] = open_sea_colour
+            continue
+        (h, w) = rgb.shape[:2]
+        x = numpy.clip((lon[at] - b) * w - 0.5, 0, w - 1)
+        y = numpy.clip((a + 1 - lat[at]) * h - 0.5, 0, h - 1)
+        i = numpy.minimum(x.astype(int), w - 2)
+        j = numpy.minimum(y.astype(int), h - 2)
+        fx = (x - i)[:, None]
+        fy = (y - j)[:, None]
+        out[at] = (
+            rgb[j, i] * (1 - fx) * (1 - fy)
+            + rgb[j, i + 1] * fx * (1 - fy)
+            + rgb[j + 1, i] * (1 - fx) * fy
+            + rgb[j + 1, i + 1] * fx * fy
+        )
+    return out
 
 
 ################################################################################

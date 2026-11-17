@@ -10,6 +10,7 @@ import hashlib
 import O4_Airport_Utils as APT
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
+import O4_Imagery_Utils as IMG
 import O4_Mask_Utils as MASK
 import O4_UI_Utils as UI
 import O4_Overlay_Utils as OVL
@@ -755,11 +756,7 @@ def build_dsf(tile, download_queue):
                 )
                 dico_terrains[terrain_attributes] = terrain_idx
                 
-                # Is it an overlay terrain or the new XP 12 phys water type ?
-                # XP11 style => overlay
-                is_overlay = (tile.water_tech == "XP11 + bathy") 
-                # No alpha channel in DDS => overlay
-                is_overlay |= not tile.imprint
+                is_overlay = not tile.water_color_mask
                 
                 if is_overlay:
                     overlay_terrains.add(terrain_idx)
@@ -772,13 +769,12 @@ def build_dsf(tile, download_queue):
                     target_tex = os.path.join(
                             tile.build_dir, "textures", texture_file_name
                             )
-                    rebuild = False
-                    if (not os.path.isfile(target_tex)):
-                        rebuild = True
-                    elif (tile.imprint):
-                        # Maybe target_tex was a DXT1, we need DXT5
-                        if (os.path.getsize(target_tex) < 20000000):
-                            rebuild = True
+                    rebuild = (
+                        not os.path.isfile(target_tex)
+                        or IMG.dds_header(target_tex)
+                        != IMG.masked_dds_header(tile, *texture_attributes)
+                    )
+                    if not rebuild and (tile.imprint or tile.water_color_mask):
                         # Maybe masks were updated after target_tex was created
                         target_mask = MASK.mask_name_for_texture(tile, 
                                           *texture_attributes)
@@ -787,12 +783,8 @@ def build_dsf(tile, download_queue):
                             tex_last_modified = os.path.getmtime(target_tex)
                             if (tex_last_modified < mask_last_modified):
                                 rebuild = True
-                    else: 
-                        # maybe target_tex was a DXT5, it should ne a DXT1
-                        if (os.path.getsize(target_tex) > 20000000):
-                            rebuild = True
                     
-                    if (rebuild or not tile.imprint):
+                    if rebuild or not (tile.imprint or tile.water_color_mask):
                         mask_im.save(os.path.join(
                             tile.build_dir,
                             "textures",

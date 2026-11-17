@@ -95,7 +95,13 @@ def build_tile(tile):
             )
         if not os.path.isdir(os.path.join(tile.build_dir, "textures")):
             os.makedirs(os.path.join(tile.build_dir, "textures"))
-        if UI.cleaning_level > 1 and not tile.grouped:
+        # The PNG masks in textures serve as BORDER_TEX, unless the
+        # textures take them in as imprints or fades. Those stay only
+        # after a conversion that failed, and would mask the texture at the
+        # next build even when it no longer holds masked water.
+        if (
+            UI.cleaning_level > 1 or tile.imprint or tile.water_color_mask
+        ) and not tile.grouped:
             for f in os.listdir(os.path.join(tile.build_dir, "textures")):
                 if f[-4:] != ".png":
                     continue
@@ -116,12 +122,15 @@ def build_tile(tile):
         UI.exit_message_and_bottom_line("")
         return 0
 
-    if skip_downloads and tile.imprint_masks_to_dds:
+    if skip_downloads and (
+        tile.imprint_masks_to_dds or tile.water_tech == "XP12"
+    ):
         UI.vprint(
             1,
             "-> Downloads are skipped, so the masks of the water go to PNG",
             "files beside the textures.",
         )
+    OVL.water_colour_maps.clear()
     download_queue = queue.Queue()
     convert_queue = queue.Queue()
     

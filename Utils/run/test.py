@@ -795,6 +795,100 @@ if m != 5 or [p for p in new if p[1] == 45] or not numpy.allclose(new, [(5.2, 45
     sys.exit("recut: new nodes " + str(new) + " and " + str(m) + " triangles, want the centre of the water triangle and 5")
 """
 
+# The colour of X-Plane's water, from the map of a fake X-Plane 12 whose
+# Global Scenery is custom_overlay_src: 4 by 4 pixels over +45+005, row 0
+# to the north, red rising to the east and green to the south. A tile
+# without a map takes the colour of any.png. Over +44+005, the red of a
+# map of 512 by 512 pixels follows a sine of 64 pixels from west to east,
+# and the colour image of a texture at ZL 14 there holds the colour at
+# the centre of each of its pixels. XP12 textures fade from the photo
+# where the mask is white into that colour where it is black, as DXT1,
+# while XP11 textures take the mask as their alpha. dds_header reads the
+# four-character code of a DDS and the CRC of the colours it fades into,
+# and masked_dds_header gives those of the texture of masked water in
+# each technique.
+water_colour_code = """
+import os
+import numpy
+from PIL import Image
+import O4_Config_Utils as CFG
+import O4_Geo_Utils as GEO
+import O4_Imagery_Utils as IMG
+import O4_Overlay_Utils as OVL
+root = os.path.abspath("X-Plane 12")
+gs = os.path.join(root, "Global Scenery", "X-Plane 12 Global Scenery")
+water = os.path.join(root, "Resources", "bitmaps", "world", "water", "+40+000")
+os.makedirs(gs)
+os.makedirs(water)
+rgb = numpy.zeros((4, 4, 3), numpy.uint8)
+(j, i) = numpy.mgrid[0:4, 0:4]
+rgb[..., 0] = 10 + 20 * i
+rgb[..., 1] = 10 + 20 * j
+rgb[..., 2] = 50
+Image.fromarray(rgb).save(os.path.join(water, "+45+005.png"))
+OVL.custom_overlay_src = gs + os.sep
+errors = []
+tests = [
+    ((45.875, 5.125), (10, 10, 50)),
+    ((45.125, 5.875), (70, 70, 50)),
+    ((45.75, 5.5), (40, 20, 50)),
+    ((45.99, 5.01), (10, 10, 50)),
+    ((46.5, 5.5), OVL.open_sea_colour),
+]
+for ((lat, lon), want) in tests:
+    got = OVL.water_colour(lat, lon)
+    if numpy.abs(got - want).max() > 1e-6:
+        errors.append("water_colour" + str((lat, lon)) + ": " + str(got) + ", want " + str(want))
+w = 512
+rgb = numpy.zeros((w, w, 3), numpy.uint8)
+rgb[..., 0] = (128 + 127 * numpy.sin(2 * numpy.pi * numpy.arange(w) / 64)).round()
+rgb[..., 1] = 100
+rgb[..., 2] = 50
+Image.fromarray(rgb).save(os.path.join(water, "+44+005.png"))
+(til_x, til_y) = GEO.wgs84_to_orthogrid(44.6, 5.3, 14)
+size = 512
+got = numpy.asarray(IMG.water_colour_image(til_x, til_y, 14, size), float)
+for k in range(0, size, 7):
+    (lat, lon) = GEO.gtile_to_wgs84(til_x + 16 * (k + 0.5) / size, til_y + 16 * (k // 2 + 0.5) / size, 14)
+    want = OVL.water_colour(lat, lon)
+    if numpy.abs(got[k // 2, k] - want).max() > 3:
+        errors.append("water_colour_image of " + str((til_x, til_y)) + ": " + str(got[k // 2, k]) + " at pixel " + str((k, k // 2)) + ", want " + str(want.round(1)))
+        break
+tile = CFG.Tile(45, 5, "")
+tile.water_tech = "XP12"
+photo = Image.new("RGB", (64, 64), (200, 150, 100))
+mask = Image.new("L", (64, 64), 255)
+mask.paste(0, (32, 0, 64, 64))
+(til_x, til_y) = (33536, 23280)
+out = IMG.apply_water_mask(tile, photo, mask.resize((32, 32)), til_x, til_y, 16, "dds")
+(lat, lon) = IMG.GEO.gtile_to_wgs84(til_x + 12, til_y + 8, 16)
+far = OVL.water_colour(lat, lon)
+a = numpy.asarray(out, int)
+if out.mode != "RGB" or tuple(a[32, 4]) != (200, 150, 100) or numpy.abs(a[32, 60] - far).max() > 2:
+    errors.append("XP12 fade: " + out.mode + " " + str(tuple(a[32, 4])) + " and " + str(tuple(a[32, 60])) + ", want RGB, the photo, and " + str(far.round()))
+tile.water_tech = "XP11 + bathy"
+out = IMG.apply_water_mask(tile, photo.copy(), mask, til_x, til_y, 16, "dds")
+if out.mode != "RGBA" or out.getpixel((4, 32)) != (200, 150, 100, 255) or out.getpixel((60, 32))[3] != 0:
+    errors.append("XP11 mask: " + out.mode + " " + str(out.getpixel((4, 32))) + " and " + str(out.getpixel((60, 32))) + ", want the mask in the alpha")
+crc = IMG.fade_crc(til_x, til_y, 14)
+for (fourcc, tag, want) in ((b"DXT1", b"", (b"DXT1", None)), (b"DXT5", b"", (b"DXT5", None)), (b"DXT1", IMG.fade_tag + crc, (b"DXT1", crc))):
+    header = bytearray(128)
+    header[:4] = b"DDS "
+    header[32:32 + len(tag)] = tag
+    header[84:88] = fourcc
+    with open("header.dds", "wb") as f:
+        f.write(header)
+    if IMG.dds_header("header.dds") != want:
+        errors.append("dds_header of a " + fourcc.decode() + " tagged " + repr(tag) + ": " + str(IMG.dds_header("header.dds")) + ", want " + str(want))
+for (tech, imprint, want) in (("XP12", True, (b"DXT1", crc)), ("XP11 + bathy", True, (b"DXT5", None)), ("XP11 + bathy", False, (b"DXT1", None))):
+    tile.water_tech = tech
+    tile.imprint_masks_to_dds = imprint
+    if IMG.masked_dds_header(tile, til_x, til_y, 14, "TEST") != want:
+        errors.append("masked_dds_header in " + tech + " with imprint_masks_to_dds " + str(imprint) + ": " + str(IMG.masked_dds_header(tile, til_x, til_y, 14, "TEST")) + ", want " + str(want))
+if errors:
+    sys.exit("\\n".join(errors))
+"""
+
 # The water points of Step 1, in posts from the south west corner of the
 # tile: the sea south west of i + j = 299.9, a lake from 600.25 to 640.25
 # east and 600.25 to 630.25 north, an airport over the sea, and the edges
@@ -1192,10 +1286,95 @@ if subprocess.run([OVL.dsftool_cmd.strip(), "-dsf2text", dsf, "xp12.txt"], stdou
     sys.exit(dsf + ": DSFTool cannot read it")
 """
 
+# Step 3 in XP12 water again, after a texture of the masked sea lost the
+# tag of its fade, and a texture of land alone its file, beside a black
+# mask that a failed conversion left: the sea texture fades again, tagged
+# with the CRC of its colours, and the land one keeps its photo. The tile
+# config, the DSF, and the textures go back as they were.
+rebuild_code = """
+import os
+import shutil
+import numpy
+from PIL import Image
+import O4_Imagery_Utils as IMG
+IMG.initialize_extents_dict()
+IMG.initialize_color_filters_dict()
+IMG.initialize_providers_dict()
+IMG.initialize_combined_providers_dict()
+import O4_Config_Utils as CFG
+import O4_DSF_Utils as DSF
+import O4_File_Names as FNAMES
+import O4_Tile_Utils as TILE
+tile = CFG.Tile(45, 5, "")
+tile.read_from_config()
+cfg = os.path.join(tile.build_dir, "Ortho4XP_+45+005.cfg")
+dsf = os.path.join(tile.build_dir, "Earth nav data", "+40+000", "+45+005.dsf")
+textures = os.path.join(tile.build_dir, "textures")
+names = {FNAMES.dds_file_name_from_attributes(*a): a for a in DSF.zone_list_to_ortho_dico(tile).values()}
+stems = {t[:-4] for t in os.listdir(os.path.join(tile.build_dir, "terrain")) if t.endswith(".ter")}
+water = ("_sea", "_sea_overlay", "_water", "_water_overlay")
+plain = sorted(s for s in stems if s + ".dds" in names)
+sea = next(s for s in plain if s + "_sea" in stems) + ".dds"
+land = next(s for s in plain if not any(s + x in stems for x in water)) + ".dds"
+before = set(os.listdir(textures))
+shutil.copy(cfg, cfg + ".rebuild")
+shutil.copy(dsf, dsf + ".rebuild")
+for name in (sea, land):
+    shutil.copy(os.path.join(textures, name), name)
+errors = []
+try:
+    with open(os.path.join(textures, sea), "r+b") as f:
+        f.seek(32)
+        f.write(bytes(8))
+    os.remove(os.path.join(textures, land))
+    Image.new("L", (64, 64), 0).save(os.path.join(textures, FNAMES.mask_file(*names[land])))
+    tile.water_tech = "XP12"
+    if not TILE.build_tile(tile):
+        errors.append("Step 3 failed")
+    want = (b"DXT1", IMG.fade_crc(*names[sea][:3]))
+    if IMG.dds_header(os.path.join(textures, sea)) != want:
+        errors.append(sea + ": " + str(IMG.dds_header(os.path.join(textures, sea))) + ", want " + str(want))
+    photo = numpy.asarray(Image.open(land).convert("RGB"), float)
+    got = numpy.asarray(Image.open(os.path.join(textures, land)).convert("RGB"), float)
+    if IMG.dds_header(os.path.join(textures, land)) != (b"DXT1", None) or numpy.abs(got - photo).mean() > 2:
+        errors.append(land + ": " + str(IMG.dds_header(os.path.join(textures, land))) + " " + str(got.mean(axis = (0, 1)).round()) + ", want a DXT1 of its photo " + str(photo.mean(axis = (0, 1)).round()))
+finally:
+    os.replace(cfg + ".rebuild", cfg)
+    os.replace(dsf + ".rebuild", dsf)
+    for name in (sea, land):
+        os.replace(name, os.path.join(textures, name))
+    for f in set(os.listdir(textures)) - before:
+        os.remove(os.path.join(textures, f))
+if errors:
+    sys.exit("\\n".join(errors))
+"""
+
+# The mask of the pond, inland water in the ZL 14 zone, holds it at the
+# plateau of ratio_water or above in XP12 water.
+pond_code = """
+import os
+from PIL import Image
+import O4_Config_Utils as CFG
+import O4_File_Names as FNAMES
+import O4_Geo_Utils as GEO
+import O4_Mask_Utils as MASK
+tile = CFG.Tile(45, 5, "")
+tile.read_from_config()
+(lat, lon) = (45.15, 5.151)
+(til_x, til_y) = GEO.wgs84_to_orthogrid(lat, lon, tile.mask_zl)
+(px, py) = GEO.wgs84_to_pix(lat, lon, tile.mask_zl)
+(px0, py0) = GEO.wgs84_to_pix(*GEO.gtile_to_wgs84(til_x, til_y, tile.mask_zl), tile.mask_zl)
+with Image.open(os.path.join(FNAMES.mask_dir(45, 5), FNAMES.legacy_mask(til_x, til_y))) as im:
+    value = im.getpixel((px - px0, py - py0))
+if not MASK.inland_plateau(tile) <= value < 255:
+    sys.exit("pond: mask " + str(value) + " at its centre, want " + str(MASK.inland_plateau(tile)) + " to 254")
+"""
+
 # Step 3 with skip_downloads, in both water techniques: the masked sea is
 # an overlay whose BORDER_TEX is a PNG mask beside the textures, which
-# come from elsewhere, and Step 3 says so in one line. The tile config,
-# the DSF, and the textures go back as they were.
+# come from elsewhere, and Step 3 says so in one line, but for XP11 +
+# bathy without imprint_masks_to_dds, whose masks stay in PNG files. The
+# tile config, the DSF, and the textures go back as they were.
 streamer_code = """
 import contextlib
 import io
@@ -1220,8 +1399,9 @@ shutil.copy(dsf, dsf + ".streamer")
 TILE.skip_downloads = True
 errors = []
 try:
-    for tech in ("XP11 + bathy", "XP12"):
+    for (tech, imprint, lines) in (("XP11 + bathy", True, 1), ("XP11 + bathy", False, 0), ("XP12", False, 1)):
         tile.water_tech = tech
+        tile.imprint_masks_to_dds = imprint
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             built = TILE.build_tile(tile)
@@ -1229,8 +1409,8 @@ try:
             errors.append(tech + ": Step 3 failed")
             continue
         n = out.getvalue().count("Downloads are skipped")
-        if n != 1:
-            errors.append(tech + ": " + str(n) + " lines on the skipped downloads, want 1")
+        if n != lines:
+            errors.append(tech + " with imprint_masks_to_dds " + str(imprint) + ": " + str(n) + " lines on the skipped downloads, want " + str(lines))
         ters = sorted(os.listdir(terrain))
         sea = [t for t in ters if t.endswith("_sea_overlay.ter")]
         if not sea or [t for t in ters if t.endswith("_sea.ter")]:
@@ -1911,6 +2091,18 @@ def check_xp12(top, build):
         errors.append("xp12: a _sea_overlay.ter, want none with the masks in the textures")
     if not [t for t in ters if t.endswith("_water_overlay.ter")]:
         errors.append("xp12: no _water_overlay.ter for the lake")
+    # Their textures fade from the photo into the colour of X-Plane's water,
+    # here that of any.png, 13, 32, 51, as DXT1.
+    for t in sea:
+        with open(os.path.join(terrain, t)) as f:
+            dds = [line.split()[1] for line in f if line.startswith("BASE_TEX_NOWRAP")][0]
+        dds = os.path.normpath(os.path.join(terrain, dds))
+        with open(dds, "rb") as f:
+            fourcc = f.read(88)[84:]
+        a = numpy.asarray(Image.open(dds).convert("RGB").reduce(8), numpy.int16)
+        water = (numpy.abs(a - (13, 32, 51)).max(axis = 2) <= 8).mean()
+        if fourcc != b"DXT1" or water < 0.1:
+            errors.append("xp12: " + dds + ": " + fourcc.decode("latin-1") + " with " + str(round(100 * water, 1)) + "% of the colour of X-Plane's water, want DXT1 and 10% or more")
     text = os.path.join(top, "xp12.txt")
     patches = dsf_patches(text)
     for (name, ps) in patches.items():
@@ -2021,6 +2213,7 @@ def test_tile(work, top, errors):
     errors += check("globalscenery", global_scenery_code, [gs], work, top, os.path.join(work, "Ortho4XP.log"))
     errors += check("rasters", rasters_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
     errors += check("waterpoints", water_points_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
+    errors += check("watercolour", water_colour_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
     errors += check("triangle4xp", triangle4xp_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
     errors += check("splits", splits_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
     errors += check("split", split_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
@@ -2200,6 +2393,7 @@ def test_tile(work, top, errors):
             errors += check_depth(text, dsf, ("terrain_Water",))
     xp12 = check("xp12", xp12_code, [], work, top, log)
     errors += xp12 or check_xp12(top, build)
+    errors += check("rebuild", rebuild_code, [], work, top, log)
     errors += check("streamer", streamer_code, [], work, top, log)
     errors += check("overlay", overlay_code, [gs], work, top, log)
     errors += check("norasters", no_rasters_code, [os.path.join(work, "Global Scenery 11")], work, top, log)
