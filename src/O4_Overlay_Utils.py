@@ -83,12 +83,19 @@ def extract_7z(archive, dest):
 
 ################################################################################
 def global_scenery_dsf(lat, lon):
-    # The path of the DSF of the tile in the Global Scenery.
-    return os.path.join(
-        custom_overlay_src,
-        "Earth nav data",
-        FNAMES.long_latlon(lat, lon) + ".dsf",
-    )
+    # The path of the DSF of the tile in the Global Scenery, or in the
+    # X-Plane 12 Demo Areas beside it when they hold the tile: X-Plane
+    # loads those first, and some tiles come only there.
+    name = os.path.join("Earth nav data", FNAMES.long_latlon(lat, lon) + ".dsf")
+    if custom_overlay_src:
+        demo = os.path.join(
+            os.path.dirname(os.path.normpath(custom_overlay_src)),
+            "X-Plane 12 Demo Areas",
+            name,
+        )
+        if os.path.exists(demo):
+            return demo
+    return os.path.join(custom_overlay_src, name)
 
 
 ################################################################################

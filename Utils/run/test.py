@@ -414,6 +414,30 @@ if got != want:
 check_agents(agents)
 """
 
+# X-Plane 12 loads the Demo Areas before the Global Scenery, and the
+# Demo Areas alone hold some tiles: the DSF of a tile comes from the Demo
+# Areas beside custom_overlay_src when they have it.
+demo_code = """
+import os
+import O4_Overlay_Utils as OVL
+root = os.path.abspath("demo")
+gs = os.path.join(root, "X-Plane 12 Global Scenery")
+demo = os.path.join(root, "X-Plane 12 Demo Areas")
+for d in (gs, demo):
+    os.makedirs(os.path.join(d, "Earth nav data", "+40+000"))
+    open(os.path.join(d, "Earth nav data", "+40+000", "+45+005.dsf"), "w").close()
+cases = (
+    (gs + os.sep, 45, 5, os.path.join(demo, "Earth nav data", "+40+000", "+45+005.dsf")),
+    (gs, 46, 5, os.path.join(gs, "Earth nav data", "+40+000", "+46+005.dsf")),
+    ("", 45, 5, os.path.join("Earth nav data", "+40+000", "+45+005.dsf")),
+)
+for (src, lat, lon, want) in cases:
+    OVL.custom_overlay_src = src
+    got = OVL.global_scenery_dsf(lat, lon)
+    if got != want:
+        sys.exit("global_scenery_dsf(" + str(lat) + ", " + str(lon) + ") with custom_overlay_src " + repr(src) + ": " + repr(got) + ", want " + repr(want))
+"""
+
 # Cleaning level 2 removes the textures that no terrain file uses, and
 # keeps those of land, masked water, and overlay terrain alike.
 unwanted_code = """
@@ -1466,6 +1490,7 @@ def test_tile(work, top, errors):
     errors += check("viewfinder", viewfinder_code, [], work, top, log)
     errors += check("community", community_code, [], work, top, log)
     errors += check("unwanted", unwanted_code, [], work, top, log)
+    errors += check("demo", demo_code, [], work, top, log)
     errors += check("extent", extent_code, [payload], work, top, log)
     if os.path.exists(os.path.join(top, "pwned")):
         errors.append("a config or provider file ran code")
