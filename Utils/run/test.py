@@ -1086,6 +1086,39 @@ if got != [b"DXT5", b"DXT5"]:
     sys.exit("the textures of " + str(codes) + " at one place: " + str(got) + ", want both imprinted in a DXT5")
 """
 
+# A raster of 3 by 3 degrees around the tile, at 1/120 of a degree, read
+# whole and in the window over the tile, gives the same floor at the posts
+# of the tile, from a window of the tile and 2 pixels around, with
+# Pillow, and with GDAL when it is there.
+window_code = """
+import numpy
+from PIL import Image, TiffImagePlugin, TiffTags
+import O4_Bathymetry as BATHY
+import O4_DEM_Utils as DEM
+n = 361
+(j, i) = numpy.mgrid[0:n, 0:n]
+s = 3 / (n - 1)
+tags = {
+    33550: ((s, s, 0.0), TiffTags.DOUBLE),
+    33922: ((0.0, 0.0, 0.0, 4.0, 47.0, 0.0), TiffTags.DOUBLE),
+    34735: ((1, 1, 0, 3, 1024, 0, 1, 2, 1025, 0, 1, 2, 2048, 0, 1, 4326), TiffTags.SHORT),
+    42113: ("-32768", TiffTags.ASCII),
+}
+ifd = TiffImagePlugin.ImageFileDirectory_v2()
+for (tag, (value, kind)) in tags.items():
+    ifd[tag] = value
+    ifd.tagtype[tag] = kind
+Image.fromarray((-1000 + 3 * i - 2 * j).astype(numpy.float32)).save("big.tif", tiffinfo = ifd)
+for gdal in [False] + [True] * DEM.has_gdal:
+    DEM.has_gdal = gdal
+    whole = DEM.read_raster_file("big.tif", 45, 5)
+    part = DEM.read_raster_file("big.tif", 45, 5, window = True)
+    a = BATHY.raster_at_posts(whole[8], *whole[1:5])
+    b = BATHY.raster_at_posts(part[8], *part[1:5])
+    if part[8].shape != (125, 125) or numpy.isnan(a).any() or numpy.abs(a - b).max() > 1e-6:
+        sys.exit("read_raster_file with GDAL " + str(gdal) + ": a window of " + str(part[8].shape) + ", off the whole by " + str(numpy.nanmax(numpy.abs(a - b))) + ", want 125 by 125 and the same floor")
+"""
+
 # The water points of Step 1, in posts from the south west corner of the
 # tile: the sea south west of i + j = 299.9, a lake from 600.25 to 640.25
 # east and 600.25 to 630.25 north, an airport over the sea, and the edges
@@ -1273,6 +1306,17 @@ fb = BATHY.rasters(*b, 45, 6, around_b)[1]
 if (fa[:, 1200] != fb[:, 0]).any():
     k = numpy.flatnonzero(fa[:, 1200] != fb[:, 0])[0]
     errors.append("rasters: floor " + str(fa[k, 1200]) + " and " + str(fb[k, 0]) + " on the two sides of the edge at row " + str(k))
+# A lake at 447 m, 0.2 degree wide: a raster that holds its surface 2 m
+# lower, as GEBCO does from another DEM, leaves the floor of the rule at
+# its middle, and one 3 m or 7 m lower gives the floor there. So does a
+# lake at -28 m, below the sea, as the Caspian lies.
+lake = rects(((5, 45, 6, 45.4, 0), (5, 45.4, 5.4, 45.6, 0), (5.4, 45.4, 5.6, 45.6, 2), (5.6, 45.4, 6, 45.6, 0), (5, 45.6, 6, 46, 0)))
+for top in (447, -28):
+    lake[0][2::5] = top
+    rule = int(BATHY.rasters(*lake, 45, 5)[1][600, 600])
+    got = [int(BATHY.rasters(*lake, 45, 5, None, numpy.full((1201, 1201), top - d))[1][600, 600]) for d in (2.0, 3.0, 7.0)]
+    if got != [rule, top - 3, top - 7] or rule >= top - 7:
+        errors.append("rasters of a lake at " + str(top) + " m: floor " + str(got) + " under rasters 2, 3 and 7 m lower, want " + str([rule, top - 3, top - 7]) + ", the rule's under " + str(top - 7) + " m")
 cells = numpy.zeros((3, 3), bool)
 cells[1, 1] = True
 if not (BATHY.wet_posts(cells) == numpy.array([[0, 0, 0, 0], [0, 1, 1, 0], [0, 1, 1, 0], [0, 0, 0, 0]], bool)).all():
@@ -1754,6 +1798,84 @@ finally:
     shutil.rmtree(masks)
     os.replace(masks + ".lake", masks)
 """
+
+# Step 3 with a custom bathymetry, a GeoTIFF of the tile without data but
+# in three blocks of posts: -35 m offshore, +5 m offshore, above the
+# surface, which Step 3 passes over for the floor of its rule, and -100 m
+# across the coast, which it clips to 50 m below. Its DSF goes to
+# bathymetry.txt in text. A corrupt file stops Step 3, which names it.
+# Without downloads, Step 3 leaves the textures, and the tile config, the
+# DSF, and the textures go back as they were.
+bathymetry_code = geotiff_writer + """
+import contextlib
+import io
+import os
+import shutil
+import subprocess
+import O4_Imagery_Utils as IMG
+IMG.initialize_extents_dict()
+IMG.initialize_color_filters_dict()
+IMG.initialize_providers_dict()
+IMG.initialize_combined_providers_dict()
+import O4_Config_Utils as CFG
+import O4_Overlay_Utils as OVL
+import O4_Tile_Utils as TILE
+floor = numpy.full((1201, 1201), -32768, numpy.int16)
+# Rows run from north to south, post j from the south.
+for (i0, i1, j0, j1, value) in ((20, 60, 20, 60, -35), (20, 60, 70, 110, 5), (140, 160, 130, 150, -100)):
+    floor[1200 - j1 : 1201 - j0, i0 : i1 + 1] = value
+write_geotiff(os.path.abspath("floor.tif"), floor, True, -32768, "tiff_deflate")
+with open("corrupt.tif", "wb") as f:
+    f.write(b"II*\\0garbage")
+tile = CFG.Tile(45, 5, "")
+tile.read_from_config()
+cfg = os.path.join(tile.build_dir, "Ortho4XP_+45+005.cfg")
+dsf = os.path.join(tile.build_dir, "Earth nav data", "+40+000", "+45+005.dsf")
+textures = os.path.join(tile.build_dir, "textures")
+before = set(os.listdir(textures))
+shutil.copy(cfg, cfg + ".bathymetry")
+shutil.copy(dsf, dsf + ".bathymetry")
+TILE.skip_downloads = True
+try:
+    tile.custom_bathymetry = os.path.abspath("corrupt.tif")
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        built = TILE.build_tile(tile)
+    if built or "ERROR: could not read the custom bathymetry " + tile.custom_bathymetry + ":" not in out.getvalue():
+        sys.exit("Step 3 with a corrupt custom_bathymetry: went on, or gave no error naming it")
+    tile.custom_bathymetry = os.path.abspath("floor.tif")
+    if not TILE.build_tile(tile):
+        sys.exit("Step 3 with a custom bathymetry failed")
+    if subprocess.run([OVL.dsftool_cmd.strip(), "-dsf2text", dsf, "bathymetry.txt"], stdout = subprocess.DEVNULL).returncode:
+        sys.exit(dsf + ": DSFTool cannot read it")
+finally:
+    os.replace(cfg + ".bathymetry", cfg)
+    os.replace(dsf + ".bathymetry", dsf)
+    for f in set(os.listdir(textures)) - before:
+        os.remove(os.path.join(textures, f))
+"""
+
+# The floor of the bathymetry rerun: the custom one, clipped, at water
+# posts inside the blocks and on their edges, which posts of no data
+# border, and that of the main build at a water post of the block above
+# the surface, at a land post inside a block, and at every post off the
+# blocks.
+def check_bathymetry(top, work):
+    files = (os.path.join(work, "dsf.txt.sea_level.raw"), os.path.join(top, "bathymetry.txt.sea_level.raw"))
+    missing = [f for f in files if not os.path.isfile(f)]
+    if missing:
+        return ["bathymetry: " + " and ".join(missing) + " missing"]
+    (main, got) = (numpy.fromfile(f, "<i2").astype(int).reshape(1201, 1201) for f in files)
+    errors = []
+    for ((i, j), want) in (((40, 40), -35), ((60, 40), -35), ((40, 20), -35), ((40, 90), main[90, 40]), ((150, 140), -50), ((157, 147), main[147, 157])):
+        if got[j, i] != want:
+            errors.append("bathymetry: sea_level " + str(got[j, i]) + " at post " + str((i, j)) + ", want " + str(want) + " (the rule gave " + str(main[j, i]) + ")")
+    (j, i) = numpy.nonzero(got != main)
+    off = [(a, b) for (a, b) in zip(i.tolist(), j.tolist())
+        if not any(i0 <= a <= i1 and j0 <= b <= j1 for (i0, i1, j0, j1) in ((20, 60, 20, 60), (20, 60, 70, 110), (140, 160, 130, 150)))]
+    if off:
+        errors.append("bathymetry: the floor changed off the raster, at posts such as " + str(off[:3]))
+    return errors
 
 # Shift-click on Build Mesh: moulinette reorders the mesh, which keeps its
 # triangles, groups them per texture of the zoomlevel, and numbers the
@@ -2241,10 +2363,13 @@ gui.config_window.v_["skip_downloads"].set(sys.argv[1])
 gui.config_window.v_["masks_width"].set("[1, 2")
 gui.config_window.v_["mesh_zl"].set("17")
 gui.config_window.v_["use_masks_for_inland"].set("True")
+gui.config_window.v_["custom_bathymetry"].set("floor.tif")
+gui.config_window.v_["water_tech"].set("XP12")
 gui.config_window.apply_changes()
 if TILE.skip_downloads is not False or CFG.masks_width != 100:
     errors.append("config window: kept invalid values")
-if CFG.get_var("mesh_zl") != 17 or CFG.get_var("use_masks_for_inland") is not True:
+if (CFG.get_var("mesh_zl") != 17 or CFG.get_var("use_masks_for_inland") is not True
+        or CFG.get_var("custom_bathymetry") != "floor.tif" or CFG.get_var("water_tech") != "XP12"):
     errors.append("config window: dropped valid values")
 # Dragging the tile map with the right button moves it. Aqua Tk calls
 # the right button 2 before Tk 8.7, and 3 from then on.
@@ -2607,6 +2732,7 @@ def test_tile(work, top, errors):
     errors += check("split", split_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
     errors += check("recut", recut_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
     errors += check("masks", masks_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
+    errors += check("window", window_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
     if errors:
         return errors
 
@@ -2791,6 +2917,8 @@ def test_tile(work, top, errors):
     errors += check("rebuild", rebuild_code, [], work, top, log)
     errors += check("streamer", streamer_code, [], work, top, log)
     errors += check("lakemask", lake_mask_code, [], work, top, log)
+    bathymetry = check("bathymetry", bathymetry_code, [], work, top, log)
+    errors += bathymetry or check_bathymetry(top, work)
     errors += check("overlay", overlay_code, [gs], work, top, log)
     errors += check("norasters", no_rasters_code, [os.path.join(work, "Global Scenery 11")], work, top, log)
     errors += check("badoverlay", bad_overlay_code, [os.path.join(work, "Global Scenery bad")], work, top, log)
