@@ -29,8 +29,7 @@ corresponding Global Scenery tiles.
 The code as been updated to work with recent versions of the python modules it
 depends on (you may have experienced some deprecation warnings or even some
 code break due to Numpy, Pyproj and Shapely, these should be fixed with this
-update). The only new python module used is skfmm (Fast Marching Method) and is only needed when using 
-the distance_masks_too option, the program will run even without it.
+update).
 
 
 TODO :

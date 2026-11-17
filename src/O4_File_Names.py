@@ -306,9 +306,6 @@ def viewfinderpanorama(lat, lon):
 def legacy_mask(m_til_x_left, m_til_y_top):
     return str(m_til_y_top) + "_" + str(m_til_x_left) + ".png"
 
-def distance_mask(m_til_x_left, m_til_y_top):
-    return str(m_til_y_top) + "_" + str(m_til_x_left) + "_dist.png"
-
 
 def mask_file(til_x_left, til_y_top, zoomlevel, provider_code):
     return (

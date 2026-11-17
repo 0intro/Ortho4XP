@@ -91,10 +91,12 @@ patches = {
 payload = '__import__("pathlib").Path("pwned").touch()'
 payload_list = "().__class__.__base__.__subclasses__()"
 
-# A tile config in the form of 1.20, which appends zones one per line,
-# holds a bool edited by hand to 1, and hmin, a setting of 1.30 that only
-# verbosity 2 reports, and starts with the byte order mark of Notepad. The
-# global config is in cp1252, which Python before 3.15 wrote on Windows.
+# A tile config in the form of 1.20, which appends zones one per line and
+# starts with the byte order mark of Notepad. It holds a bool edited by
+# hand to 1, and settings that Ortho4XP has dropped, which only verbosity
+# 2 reports: hmin of 1.30, and distance_masks_too and ratio_bathy of 1.40.
+# The global config is in cp1252, which Python before 3.15 wrote on
+# Windows.
 legacy_code = """
 import ast
 import contextlib
@@ -104,8 +106,9 @@ tile = CFG.Tile(45, 5, "")
 out = io.StringIO()
 with contextlib.redirect_stdout(out):
     tile.read_from_config(sys.argv[1])
-if "hmin" in out.getvalue():
-    sys.exit("hmin reported at verbosity 1: " + out.getvalue())
+for name in ("hmin", "distance_masks_too", "ratio_bathy"):
+    if name in out.getvalue():
+        sys.exit(name + " reported at verbosity 1: " + out.getvalue())
 if tile.zone_list != ast.literal_eval(sys.argv[2]):
     sys.exit("zones " + repr(tile.zone_list) + ", want " + sys.argv[2])
 if tile.use_masks_for_inland is not True:
@@ -1490,7 +1493,7 @@ def test_tile(work, top, errors):
     with open(legacy, "w", encoding = "utf-8-sig") as f:
         for zone in config["zone_list"] + [payload]:
             f.write("zone_list.append(" + str(zone) + ")\n")
-        f.write("use_masks_for_inland=1\nhmin=0\n")
+        f.write("use_masks_for_inland=1\nhmin=0\ndistance_masks_too=True\nratio_bathy=0.5\n")
     errors += check("legacy", legacy_code, [legacy, repr(config["zone_list"]), scenery_dir], work, top, log)
     errors += check("7z", seven_zip_code, [], work, top, log)
     errors += check("link", link_code, [], work, top, log)
