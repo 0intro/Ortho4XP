@@ -20,11 +20,21 @@ source.
 NOTE 15/02/2024 : In transition to version 1.40.
 
 Version 1.40 is mostly a compatibility update for XP 12 water requirements.
-Some newer code related to 3D waterbed rendering is included, but one will have
-to wait for XP 12.1 to potentially revise it. The default setting is XP11 (i.e. 
-overlay based ) water rendering + bathymetry for 3D water and physics plane interaction. 
-The new Ortho4XP tiles also automatically bring the seasons, sounds, etc raster from the
-corresponding Global Scenery tiles.
+
+Water is X-Plane 12 water by default (water_tech XP12). Masked water, the
+sea and the lakes in textures at mask_zl or above, takes its colour from the
+orthophoto, which fades into the colour of X-Plane's own water away from the
+shore. Step 3 reads that colour from the maps of the X-Plane whose Global
+Scenery custom_overlay_src names. It computes the floor of the water and the
+fetch of the waves from the mesh, as Laminar's scenery tools do, or takes the
+floor from a raster that custom_bathymetry names. The tiles also bring the
+seasons and the sounds from the corresponding Global Scenery tiles. The
+water_tech XP11 + bathy draws the orthophoto as overlays over X-Plane water
+instead. A tile or global config keeps the water_tech it was written with: after
+changing it, run Steps 2.5 and 3 again. In XP12 water, the masks of Step 2.5
+cover the lakes too, in grey, for the orthophoto to keep the weight of
+ratio_water there. The mask layers of combined providers and the alpha of
+GeoTIFF exports then read that grey.
 
 The code as been updated to work with recent versions of the python modules it
 depends on (you may have experienced some deprecation warnings or even some

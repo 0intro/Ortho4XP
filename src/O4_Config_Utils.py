@@ -390,9 +390,9 @@ a particular server.",
     },
     "water_tech": {
             "type": str,
-            "default": "XP11 + bathy",
+            "default": "XP12",
             "values" : ("XP12", "XP11 + bathy"),
-            "hint" : "Water tech type. XP12 uses a new (partly in construction) rendering tech, XP11 + bathy uses a more traditionnal blend. Both allows for 3D water."
+            "hint" : "XP12 draws the masked water, the sea and the lakes in textures at mask_zl or above, as X-Plane 12 water coloured by the orthophoto, which fades into the colour of X-Plane's own water away from the shore. XP11 + bathy draws the orthophoto as overlays over X-Plane water, with the masks in their alpha or in png files. Both have the 3D waves and the floor of X-Plane 12. A tile or global config keeps the value it was written with: after changing it, run Steps 2.5 and 3 again."
     },
     #"add_low_res_sea_ovl": {
     #    "type": bool,
