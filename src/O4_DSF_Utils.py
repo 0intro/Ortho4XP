@@ -501,11 +501,33 @@ def build_dsf(tile, download_queue):
     (mesh_version, nbr_nodes, node_coords, nbr_tris, tri_idx, tri_types) \
             = MESH.read_mesh_file(mesh_filename)
 
-    # 2 Remap tri_types in (0,1,2)
+    # 2 Remap tri_types in (0,1,2): 2 for masked water, which inland water
+    # is when masked and its texture has a mask from Step 2.5, at mask_zl
+    # or above. Elsewhere it keeps its overlay.
     has_water = 7 if (mesh_version >= 1.3) else 3
+    has_mask = {}
     for i in range(nbr_tris):
         t = tri_types[i] & has_water
-        t = t and (2 * (t > 1 or tile.use_masks_for_inland) or 1)
+        t = t and (2 * (t > 1) or 1)
+        if t == 1 and tile.inland_masked:
+            (n1, n2, n3) = tri_idx[3 * i : 3 * i + 3]
+            bary_lat = (
+                node_coords[5 * n1 + 1]
+                + node_coords[5 * n2 + 1]
+                + node_coords[5 * n3 + 1]
+            ) / 3
+            bary_lon = (
+                node_coords[5 * n1] + node_coords[5 * n2] + node_coords[5 * n3]
+            ) / 3
+            texture = dico_customzl[
+                GEO.wgs84_to_orthogrid(bary_lat, bary_lon, tile.mesh_zl)
+            ]
+            if texture not in has_mask:
+                has_mask[texture] = os.path.isfile(
+                    MASK.mask_name_for_texture(tile, *texture)
+                )
+            if has_mask[texture]:
+                t = 2
         tri_types[i] = t
 
     UI.vprint(1, "-> Computing the elevation and sea_level rasters")
@@ -522,7 +544,7 @@ def build_dsf(tile, download_queue):
     UI.vprint(1, "-> Computing point pools and texture requirements")
     
     # 5 Compute quadtree
-    if (tile.use_masks_for_inland):
+    if tile.inland_masked:
         quad_capacity = quad_capacity_low
     else:
         quad_capacity = quad_capacity_high

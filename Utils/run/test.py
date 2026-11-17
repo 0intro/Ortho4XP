@@ -54,7 +54,9 @@ def box(lat0, lon0, lat1, lon1):
 # from TEST, which sends headers of its own. The airport lies on the
 # plateau of the DEM and gets ZL 15 textures, and the motorway climbs the
 # steep flank of its hill, which makes Step 1 level it. The river, 55 m
-# wide, meshes into triangles from bank to bank that Step 2 splits.
+# wide, meshes into triangles from bank to bank that Step 2 splits. The
+# pond lies on land in the ZL 14 zone, where inland water takes masks in
+# XP12 water.
 config = {
     "default_website": "TEST",
     "default_zl": 12,
@@ -77,6 +79,7 @@ osm = {
     "water": [
         (box(45.84, 5.6, 45.852, 5.616), {"natural": "water", "name": "Test"}),
         (box(45.5, 5.8, 45.5005, 5.9), {"natural": "water", "name": "River"}),
+        (box(45.148, 5.148, 45.152, 5.154), {"natural": "water", "name": "Pond"}),
     ],
 }
 
@@ -889,6 +892,19 @@ if errors:
     sys.exit("\\n".join(errors))
 """
 
+# The plateau of masked lakes is the alpha that the overlay of inland
+# water reads from water_transition.png at t = ratio_water, from its
+# bottom row, or 0 at 30 or less.
+plateau_code = """
+import O4_Config_Utils as CFG
+import O4_Mask_Utils as MASK
+tile = CFG.Tile(45, 5, "")
+for (ratio, want) in ((0.25, 149), (0.5, 46), (0.9, 0), (1, 0)):
+    tile.ratio_water = ratio
+    if MASK.inland_plateau(tile) != want:
+        sys.exit("inland_plateau at ratio_water " + str(ratio) + ": " + str(MASK.inland_plateau(tile)) + ", want " + str(want))
+"""
+
 # The water points of Step 1, in posts from the south west corner of the
 # tile: the sea south west of i + j = 299.9, a lake from 600.25 to 640.25
 # east and 600.25 to 630.25 north, an airport over the sea, and the edges
@@ -1223,7 +1239,9 @@ if not MESH.sort_mesh(tile):
     sys.exit("sort_mesh failed in " + repr(name))
 """
 
-# Step 3 again with water_tech XP12, whose DSF goes to xp12.txt in text.
+# Steps 2.5 and 3 again with water_tech XP12, whose DSF goes to xp12.txt
+# in text. The mask of the pond, inland water in the ZL 14 zone, holds it
+# at the plateau of ratio_water or above.
 # A twin of the node on the first corner of a triangle splits it into
 # itself and a triangle with two corners on one position, as two nodes
 # closer than a step of their pool give. That is done to the sea triangle
@@ -1241,8 +1259,11 @@ IMG.initialize_providers_dict()
 IMG.initialize_combined_providers_dict()
 import O4_Config_Utils as CFG
 import O4_File_Names as FNAMES
+import O4_Geo_Utils as GEO
+import O4_Mask_Utils as MASK
 import O4_Overlay_Utils as OVL
 import O4_Tile_Utils as TILE
+from PIL import Image
 tile = CFG.Tile(45, 5, "")
 tile.read_from_config()
 cfg = os.path.join(tile.build_dir, "Ortho4XP_+45+005.cfg")
@@ -1274,11 +1295,25 @@ twin(next(j for j in range(len(tris)) if int(tris[j][3]) & 7 == 1))
 with open(mesh, "w") as f:
     f.write("\\n".join(lines))
 tile.water_tech = "XP12"
+masks = FNAMES.mask_dir(45, 5)
+shutil.copytree(masks, masks + ".xp12")
 try:
+    if not MASK.build_masks(tile):
+        sys.exit("Step 2.5 failed")
+    (lat, lon) = (45.15, 5.151)
+    (til_x, til_y) = GEO.wgs84_to_orthogrid(lat, lon, tile.mask_zl)
+    (px, py) = GEO.wgs84_to_pix(lat, lon, tile.mask_zl)
+    (px0, py0) = GEO.wgs84_to_pix(*GEO.gtile_to_wgs84(til_x, til_y, tile.mask_zl), tile.mask_zl)
+    with Image.open(os.path.join(masks, FNAMES.legacy_mask(til_x, til_y))) as im:
+        value = im.getpixel((px - px0, py - py0))
+    if not MASK.inland_plateau(tile) <= value < 255:
+        sys.exit("pond: mask " + str(value) + " at its centre, want " + str(MASK.inland_plateau(tile)) + " to 254")
     built = TILE.build_tile(tile)
 finally:
     os.replace(cfg + ".xp12", cfg)
     os.replace(mesh + ".xp12", mesh)
+    shutil.rmtree(masks)
+    os.replace(masks + ".xp12", masks)
 if not built:
     sys.exit("Step 3 failed")
 dsf = os.path.join(tile.build_dir, "Earth nav data", "+40+000", "+45+005.dsf")
@@ -1373,19 +1408,26 @@ if not MASK.inland_plateau(tile) <= value < 255:
 # Step 3 with skip_downloads, in both water techniques: the masked sea is
 # an overlay whose BORDER_TEX is a PNG mask beside the textures, which
 # come from elsewhere, and Step 3 says so in one line, but for XP11 +
-# bathy without imprint_masks_to_dds, whose masks stay in PNG files. The
-# tile config, the DSF, and the textures go back as they were.
+# bathy without imprint_masks_to_dds, whose masks stay in PNG files.
+# Without the masks of Step 2.5, the pond keeps the overlay of inland
+# water in XP12 water. The tile config, the DSF, the masks, and the
+# textures go back as they were.
 streamer_code = """
 import contextlib
 import io
 import os
 import shutil
+import subprocess
 import O4_Imagery_Utils as IMG
 IMG.initialize_extents_dict()
 IMG.initialize_color_filters_dict()
 IMG.initialize_providers_dict()
 IMG.initialize_combined_providers_dict()
 import O4_Config_Utils as CFG
+import O4_DSF_Utils as DSF
+import O4_File_Names as FNAMES
+import O4_Geo_Utils as GEO
+import O4_Overlay_Utils as OVL
 import O4_Tile_Utils as TILE
 tile = CFG.Tile(45, 5, "")
 tile.read_from_config()
@@ -1393,6 +1435,7 @@ cfg = os.path.join(tile.build_dir, "Ortho4XP_+45+005.cfg")
 dsf = os.path.join(tile.build_dir, "Earth nav data", "+40+000", "+45+005.dsf")
 textures = os.path.join(tile.build_dir, "textures")
 terrain = os.path.join(tile.build_dir, "terrain")
+masks = FNAMES.mask_dir(45, 5)
 before = set(os.listdir(textures))
 shutil.copy(cfg, cfg + ".streamer")
 shutil.copy(dsf, dsf + ".streamer")
@@ -1421,7 +1464,21 @@ try:
             if len(border) != 1 or not border[0].endswith(".png") or not os.path.isfile(os.path.join(terrain, border[0])):
                 errors.append(tech + ": " + t + ": BORDER_TEX " + str(border) + ", want one PNG mask beside the textures")
                 break
+    tile.water_tech = "XP12"
+    os.rename(masks, masks + ".streamer")
+    with contextlib.redirect_stdout(io.StringIO()):
+        built = TILE.build_tile(tile)
+    os.rename(masks + ".streamer", masks)
+    texture = DSF.zone_list_to_ortho_dico(tile)[GEO.wgs84_to_orthogrid(45.15, 5.151, tile.mesh_zl)]
+    want = "terrain/" + FNAMES.dds_file_name_from_attributes(*texture)[:-4] + "_water_overlay.ter"
+    subprocess.run([OVL.dsftool_cmd.strip(), "-dsf2text", dsf, "streamer.txt"], stdout = subprocess.DEVNULL, check = True)
+    with open("streamer.txt", encoding = "latin-1") as f:
+        defs = [line.split()[1] for line in f if line.startswith("TERRAIN_DEF")]
+    if not built or want not in defs:
+        errors.append("XP12 without masks: " + ("terrain " + str(defs) if built else "Step 3 failed") + ", want " + want + " for the pond")
 finally:
+    if os.path.isdir(masks + ".streamer"):
+        os.rename(masks + ".streamer", masks)
     os.replace(cfg + ".streamer", cfg)
     os.replace(dsf + ".streamer", dsf)
     for f in set(os.listdir(textures)) - before:
@@ -2158,6 +2215,16 @@ def check_xp12(top, build):
                 errors.append("xp12: " + name + ": normal " + str(tilted[0][3:5]) + " at " + str(tilted[0][:2]) + ", want 0, 0")
                 break
     errors += check_collapsed(text, patches)
+    ((lat0, lon0), (lat1, lon1)) = (osm["water"][2][0][0], osm["water"][2][0][2])
+    pond = [v for (name, ps) in patches.items() if name.endswith("_sea.ter") for p in ps for v in p[4]
+        if lon0 < v[0] < lon1 and lat0 < v[1] < lat1]
+    if not pond:
+        errors.append("xp12: no vertex of WATER_COLOR_MASK in the pond, want its inland water masked")
+    ((lat0, lon0), (lat1, lon1)) = (osm["water"][0][0][0], osm["water"][0][0][2])
+    lake = [v for (name, ps) in patches.items() if name.endswith("_water_overlay.ter") for p in ps for v in p[4]
+        if lon0 < v[0] < lon1 and lat0 < v[1] < lat1]
+    if not lake:
+        errors.append("xp12: no vertex of a _water_overlay.ter in the lake, want its overlay")
     errors += check_depth("xp12", patches, ("_sea.ter", "terrain_Water"))
     return errors + check_fetch(text, patches, ("_sea.ter", "terrain_Water"))
 
@@ -2250,6 +2317,7 @@ def test_tile(work, top, errors):
     errors += check("rasters", rasters_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
     errors += check("waterpoints", water_points_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
     errors += check("watercolour", water_colour_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
+    errors += check("plateau", plateau_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
     errors += check("triangle4xp", triangle4xp_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
     errors += check("splits", splits_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
     errors += check("split", split_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
@@ -2302,8 +2370,8 @@ def test_tile(work, top, errors):
         poly = f.read().split("\n")
     on_edges = {int(n) for line in poly[3:3 + int(poly[2].split()[0])] for n in line.split()[1:3]}
     posts = [(x * 1200, y * 1200) for (k, (x, y)) in nodes.items() if k not in on_edges]
-    ((lat0, lon0), (lat1, lon1)) = (osm["water"][0][0][0], osm["water"][0][0][2])
-    in_lake = lambda i, j: lon0 < 5 + i / 1200 < lon1 and lat0 < 45 + j / 1200 < lat1
+    boxes = [(way[0], way[2]) for (way, tags) in osm["water"]]
+    in_lake = lambda i, j: any(lon0 < 5 + i / 1200 < lon1 and lat0 < 45 + j / 1200 < lat1 for ((lat0, lon0), (lat1, lon1)) in boxes)
     kept = {(round((lon - 5) * 1200, 3), round((lat - 45) * 1200, 3)) for (lon, lat, z) in vertices}
     bad = [(i, j) for (i, j) in posts if abs(i - round(i)) > 1e-3 or abs(j - round(j)) > 1e-3
         or round(i) % 2 or round(j) % 2 or not (0 < i < 1200 and 0 < j < 1200)

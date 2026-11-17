@@ -70,8 +70,9 @@ def build_masks(tile, for_imagery=False):
     
     # Which grey level for inland water equivalent ?
     im = Image.open(os.path.join(FNAMES.Utils_dir, "water_transition.png"))
-    sea_level = im.getpixel((0, 127 * (1 - min(1, 0.1 + tile.ratio_water))))
+    inland_grey = im.getpixel((0, 127 * (1 - min(1, 0.1 + tile.ratio_water))))
     del im
+    plateau = inland_plateau(tile)
     
     UI.red_flag = False
     UI.logprint(
@@ -152,7 +153,7 @@ def build_masks(tile, for_imagery=False):
             return 1
 
         pre_mask = build_water_pre_mask(til_x, til_y, mesh_list, dico_sea,
-                                         dico_inland, sea_level, tile) 
+                                         dico_inland, inland_grey, tile)
         if tile.masks_use_DEM_too:
             dem_array = build_dem_pre_mask(til_x, til_y, tile)
             # The DEM tells land from the sea alone, as lakes lie above its
@@ -164,14 +165,16 @@ def build_masks(tile, for_imagery=False):
             del(dem_array)
 
         if tile.masks_custom_extent:
-            custom_array = build_custom_pre_mask(til_x, til_y, sea_level, tile)
+            custom_array = build_custom_pre_mask(til_x, til_y, inland_grey, tile)
 
+        lakes = tile.inland_masked and dico_inland.get((til_x, til_y))
         if (pre_mask.max() == 0) and (
-                not tile.masks_custom_extent or custom_array.max() == 0):
+                not tile.masks_custom_extent or custom_array.max() == 0) and (
+                not (plateau and lakes)):
             return 1
         
         
-        blured_mask = blur_mask(pre_mask, tile, sea_level)
+        blured_mask = blur_mask(pre_mask, tile, inland_grey)
 
         # Ensure land is kept to 255 on the mask to avoid unecessary ones, crop 
         # to final size, and take the max with the possible custom extent mask
@@ -182,6 +185,14 @@ def build_masks(tile, for_imagery=False):
         
         if tile.masks_custom_extent:
             blured_mask = numpy.maximum(blured_mask, custom_array)
+
+        # Masked lakes show the photo at least at the weight of plateau.
+        if plateau and lakes:
+            lake_array = draw_triangles(
+                numpy.zeros((6144, 6144), dtype=numpy.uint8),
+                til_x, til_y, lakes, plateau, tile,
+            )[1024 : 4096 + 1024, 1024 : 4096 + 1024]
+            blured_mask = numpy.maximum(blured_mask, lake_array)
 
         if not (blured_mask.max() == 0 or blured_mask.min() == 255):
             mask_im = Image.fromarray(blured_mask)
@@ -215,6 +226,17 @@ def build_masks(tile, for_imagery=False):
     return 1
 ################################################################################
     
+################################################################################
+def inland_plateau(tile):
+    # The value of the mask in a masked lake: the alpha that the overlay of
+    # inland water reads from water_transition.png at t = ratio_water, from
+    # its bottom row, so that both water techniques tint lakes alike, or 0
+    # at 30 or less, where needs_mask finds no mask.
+    im = Image.open(os.path.join(FNAMES.Utils_dir, "water_transition.png"))
+    g = im.getpixel((0, round((1 - min(1, max(0, tile.ratio_water))) * (im.height - 1))))
+    return g if g > 30 else 0
+
+
 ################################################################################
 def select_neighbor_meshes(tile):
     mesh_list = []
@@ -497,7 +519,7 @@ def record_water_tris(tile):
                 (not tri_type)
                 or (not (tri_type & has_water))
                 or (
-                    (tri_type & has_water) < 2 and not tile.use_masks_for_inland
+                    (tri_type & has_water) < 2 and not tile.inland_masked
                 )
             ):
                 continue
@@ -530,8 +552,12 @@ def record_water_tris(tile):
                     dico_lake.setdefault(key, []).append(
                         (lat1, lon1, lat2, lon2, lat3, lon3)
                     )
+                if (tri_type & has_water) == 1:
+                    dico_inland.setdefault(key, []).append(
+                        (lat1, lon1, lat2, lon2, lat3, lon3)
+                    )
         f_mesh.close()
-        if not tile.use_masks_for_inland:
+        if not tile.inland_masked:
             UI.vprint(2, "   Taking care of inland water near shoreline")
             f_mesh = open(mesh_file_name, "r")
             for i in range(0, 4):
