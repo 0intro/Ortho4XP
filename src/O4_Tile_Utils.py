@@ -137,8 +137,9 @@ def build_tile(tile):
     failed_downloads = []
     converted = 1
 
+    built = []
     build_dsf_thread = threading.Thread(
-        target=DSF.build_dsf, args=[tile, download_queue]
+        target=lambda: built.append(DSF.build_dsf(tile, download_queue))
     )
     download_thread = threading.Thread(
         target=download_textures,
@@ -175,24 +176,36 @@ def build_tile(tile):
                 UI.vprint(1, "DDS conversion process interrupted.")
             elif dico_conv_progress["done"] >= 1:
                 UI.vprint(1, " *DDS conversion of textures completed.")
-    # build_dsf stops with part of the DSF written, which stays inactive.
-    if UI.red_flag:
-        UI.exit_message_and_bottom_line()
-        return 0
-    UI.vprint(1, " *Activating DSF file.")
+    # build_dsf writes the DSF to a .tmp file, which becomes the DSF of the
+    # tile only when it succeeds. One that stopped, failed, or raised
+    # stays inactive. The DSF of an earlier run then goes to .bak in a
+    # tile built alone, since the terrain files that it names went as
+    # Step 3 started.
     dsf_file_name = os.path.join(
         tile.build_dir,
         "Earth nav data",
         FNAMES.long_latlon(tile.lat, tile.lon) + ".dsf",
     )
-    try:
-        if os.path.exists(dsf_file_name):
+    activated = False
+    if built == [1] and not UI.red_flag:
+        UI.vprint(1, " *Activating DSF file.")
+        try:
+            if os.path.exists(dsf_file_name):
+                os.replace(dsf_file_name, dsf_file_name + ".bak")
+            os.replace(dsf_file_name + ".tmp", dsf_file_name)
+            activated = True
+        except:
+            UI.vprint(
+                0, "ERROR : could not rename DSF file, tile is not actived."
+            )
+    elif not tile.grouped and os.path.exists(dsf_file_name):
+        try:
             os.replace(dsf_file_name, dsf_file_name + ".bak")
-        os.replace(dsf_file_name + ".tmp", dsf_file_name)
-        activated = True
-    except:
-        UI.vprint(0, "ERROR : could not rename DSF file, tile is not actived.")
-        activated = False
+        except OSError as e:
+            UI.vprint(0, "ERROR: could not move", dsf_file_name, "to .bak:", e)
+    if UI.red_flag:
+        UI.exit_message_and_bottom_line()
+        return 0
     if not activated or failed_downloads or not converted:
         UI.exit_message_and_bottom_line(
             "\nERROR: Some textures or the DSF could not be built, see above."

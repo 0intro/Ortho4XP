@@ -2062,10 +2062,12 @@ if errors:
 
 # Failures inside the steps: a task that raises fails its parallel launch
 # while the others run, a texture whose build raises counts as failed, a
-# stopped Step 3 leaves its DSF inactive, and build_dsf leaves the active
-# DSF in place while it writes the new one. A mask whose build raises
-# fails Step 2.5. That last one leaves the tile without masks, so this
-# check runs last.
+# Step 3 stopped in build_dsf or after it leaves its DSF inactive, and so
+# does one whose DSF fails or raises, beside a DSF left by an earlier
+# stop, and each moves the DSF of an earlier run to .bak. build_dsf leaves
+# the active DSF in place while it writes the new one. A mask whose build
+# raises fails Step 2.5. That last one leaves the tile without masks, so
+# this check runs last.
 failures_code = """
 import os
 import queue
@@ -2124,16 +2126,30 @@ stopped.build_dir = os.path.abspath("stopped")
 os.makedirs(stopped.build_dir)
 shutil.copy(FNAMES.mesh_file(tile.build_dir, 45, 5), FNAMES.mesh_file(stopped.build_dir, 45, 5))
 dsf = os.path.join(stopped.build_dir, "Earth nav data", "+40+000", "+45+005.dsf")
-def stop(tile, download_queue):
+def stop(tile, download_queue, built = 0):
     with open(dsf + ".tmp", "wb") as f:
         f.write(b"XPLNEDSF")
     UI.red_flag = True
-    return 0
+    return built
 real_build_dsf = TILE.DSF.build_dsf
-TILE.DSF.build_dsf = stop
 TILE.skip_downloads = True
-if TILE.build_tile(stopped) or os.path.exists(dsf):
-    errors.append("Step 3 stopped: " + dsf + " in place, want it inactive")
+for (how, build_dsf) in (("in build_dsf", stop), ("after build_dsf", lambda tile, download_queue: stop(tile, download_queue, 1))):
+    TILE.DSF.build_dsf = build_dsf
+    if TILE.build_tile(stopped) or os.path.exists(dsf):
+        errors.append("Step 3 stopped " + how + ": " + dsf + " in place, want it inactive")
+for (how, build_dsf) in (("failing", lambda tile, download_queue: 0), ("raising", fail)):
+    TILE.DSF.build_dsf = build_dsf
+    if TILE.build_tile(stopped) or os.path.exists(dsf) or not os.path.exists(dsf + ".tmp"):
+        errors.append("Step 3 with build_dsf " + how + " after a stop: " + dsf + (" in place" if os.path.exists(dsf) else " inactive") + " and its .tmp " + ("kept" if os.path.exists(dsf + ".tmp") else "gone") + ", want it inactive and its .tmp kept")
+# Step 3 empties the terrain folder that the DSF of an earlier run names,
+# so that DSF goes to .bak when Step 3 activates none.
+for (how, build_dsf) in (("stopping", stop), ("failing", lambda tile, download_queue: 0), ("raising", fail)):
+    with open(dsf, "wb") as f:
+        f.write(b"earlier")
+    UI.red_flag = False
+    TILE.DSF.build_dsf = build_dsf
+    if TILE.build_tile(stopped) or os.path.exists(dsf) or not os.path.exists(dsf + ".bak"):
+        errors.append("Step 3 with build_dsf " + how + " beside the DSF of an earlier run: " + dsf + " in place, want it in .bak")
 with open(dsf, "wb") as f:
     f.write(b"active")
 UI.red_flag = False
