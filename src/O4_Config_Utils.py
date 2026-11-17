@@ -345,7 +345,7 @@ a particular server.",
     "use_masks_for_inland": {
         "type": bool,
         "default": False,
-        "hint": "Will use masks for the inland water (lakes, rivers, etc) too, instead of the default constant transparency level determined by ratio_water. This is VRAM expensive and presumably not really worth the price.",
+        "hint": "Will use masks for the inland water (lakes, rivers, etc) too, instead of the default constant transparency level determined by ratio_water. This is VRAM expensive and presumably not really worth the price. The XP12 water_tech masks inland water in textures at mask_zl or above in any case.",
     },
     "imprint_masks_to_dds": {
         "type": bool,
@@ -408,7 +408,7 @@ a particular server.",
     "ratio_water": {
         "type": float,
         "default": 0.25,
-        "hint": 'Inland water rendering is made of two layers : one bottom layer of "X-Plane water" and one overlay layer of orthophoto with constant level of transparency applied. The parameter ratio_water (values between 0 and 1) determines how much transparency is applied to the orthophoto. At zero, the orthophoto is fully opaque and X-Plane water cannot be seen ; at 1 the orthophoto is fully transparent and only the X-Plane water is seen.',
+        "hint": 'Inland water rendering is made of two layers : one bottom layer of "X-Plane water" and one overlay layer of orthophoto with constant level of transparency applied. The parameter ratio_water (values between 0 and 1) determines how much transparency is applied to the orthophoto. At zero, the orthophoto is fully opaque and X-Plane water cannot be seen ; at 1 the orthophoto is fully transparent and only the X-Plane water is seen. With the XP12 water_tech, inland water in textures at mask_zl or above takes masks instead, and fades from the orthophoto at the shore into X-Plane water, as the sea does.',
     },
     "normal_map_strength": {
         "type": float,
@@ -579,6 +579,13 @@ class Tile:
             and self.water_tech == "XP11 + bathy"
             and not TILE.skip_downloads
         )
+
+    @property
+    def inland_masked(self):
+        # Whether inland water takes masks, as it always does in XP12 water,
+        # where lakes fade into X-Plane's water away from the shore, as the
+        # sea does.
+        return self.use_masks_for_inland or self.water_tech == "XP12"
 
     @property
     def water_color_mask(self):
