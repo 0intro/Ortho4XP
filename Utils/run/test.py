@@ -693,6 +693,104 @@ subprocess.run([OVL.seven_zip(), "a", os.path.join(gs, "+45+005.7z"), dsf], stdo
 os.replace(os.path.join(gs, "+45+005.7z"), os.path.join(dsf_dir, "+45+005.dsf"))
 """
 
+# The water points of Step 1, in posts from the south west corner of the
+# tile: the sea south west of i + j = 299.9, a lake from 600.25 to 640.25
+# east and 600.25 to 630.25 north, an airport over the sea, and the edges
+# of the coast, of the lake, of the tile, and of two lines north across
+# the water at i = 120 and i = 610.3. The points are the posts of the
+# lattice that Laminar's rule gives, and none at the airport or within
+# half a post of an edge. A tile without a seed whose DEM stays below 1 m
+# is all sea, and gets the lattice of 40 posts. With land at 1 m and above
+# it gets no water.
+water_points_code = """
+from math import sqrt
+import numpy
+from shapely import geometry
+import O4_Bathymetry as BATHY
+import O4_Vector_Map as VMAP
+import O4_Vector_Utils as VECT
+class DEM:
+    def alt_vec(self, way):
+        return numpy.full(len(way), 7.0)
+class Tile:
+    dem = DEM()
+def p(i, j):
+    return (i / 1200, j / 1200)
+sea = geometry.Polygon([p(0, 0), p(299.9, 0), p(0, 299.9)])
+lake = geometry.Polygon([p(600.25, 600.25), p(640.25, 600.25), p(640.25, 630.25), p(600.25, 630.25)])
+airport = geometry.Polygon([p(239.75, 0), p(252.25, 0), p(252.25, 60.25), p(239.75, 60.25)])
+vmap = VECT.Vector_Map()
+vmap.water += [sea, lake]
+ways = [
+    [p(0, 0), p(1200, 0), p(1200, 1200), p(0, 1200), p(0, 0)],
+    [p(299.9, 0), p(0, 299.9)],
+    list(lake.exterior.coords),
+    [p(120, 0), p(120, 1200)],
+    [p(610.3, 0), p(610.3, 1200)],
+]
+for way in ways:
+    vmap.insert_way(numpy.array([(x, y, 0) for (x, y) in way]), "DUMMY", check = False)
+first = vmap.next_node_id
+VMAP.include_water_points(vmap, Tile(), airport)
+got = {}
+for k in range(first, vmap.next_node_id):
+    (x, y) = vmap.nodes_dico[k]
+    got[(round(x * 1200), round(y * 1200))] = (x * 1200, y * 1200, vmap.data_nodes[k])
+cells = numpy.zeros((1200, 1200), bool)
+(cj, ci) = numpy.mgrid[0:1200, 0:1200]
+cells[ci + cj <= 298] = True
+cells[600:630, 600:640] = True
+d = BATHY.distance(cells)
+want = set()
+for j in range(2, 1199, 2):
+    for i in range(2, 1199, 2):
+        dist = d[j - 1, i - 1]
+        skip = next(k for k in (2, 4, 8, 16, 32, 40) if dist <= k or k == 40)
+        if i % skip or j % skip:
+            continue
+        water = i + j < 299.9 or (600.25 < i < 640.25 and 600.25 < j < 630.25)
+        at_airport = 239.75 <= i <= 252.25 and j <= 60.25
+        near = ((abs(299.9 - i - j) / sqrt(2) < 0.5 and i < 300 and j < 300) or i == 120 or abs(i - 610.3) < 0.5
+            or (600.25 < i < 640.25 and 600.25 < j < 630.25
+                and min(i - 600.25, 640.25 - i, j - 600.25, 630.25 - j) < 0.5))
+        if water and not at_airport and not near:
+            want.add((i, j))
+errors = []
+for (k, (x, y, z)) in got.items():
+    if abs(x - k[0]) > 1e-6 or abs(y - k[1]) > 1e-6 or z != 7:
+        errors.append("a water point at " + str((x, y, z)) + " in posts, want one on a post at 7 m")
+if set(got) != want:
+    errors.append("water points " + str(sorted(set(got) - want)[:5]) + " beyond the lattice, and " + str(sorted(want - set(got))[:5]) + " missing from it")
+for k in (2, 4, 8, 16, 32, 40):
+    if not [1 for (i, j) in want if next(s for s in (2, 4, 8, 16, 32, 40) if d[j - 1, i - 1] <= s or s == 40) == k]:
+        errors.append("the lattice of " + str(k) + " posts holds no point, want the case covered")
+# encode_MultiPolygon hands back the polygons it encodes, cut to the
+# tile, simplified, and above its area limit: not a pond below it.
+vmap = VECT.Vector_Map()
+encoded = []
+pond = geometry.box(0.5, 0.5, 0.5001, 0.5001)
+vmap.encode_MultiPolygon({1: geometry.box(-0.5, 0.2, 0.3, 0.4), 2: pond}, lambda way: numpy.zeros(len(way)), "WATER", area_limit = 1e-6, simplify = 1e-9, encoded = encoded)
+if len(encoded) != 1 or abs(encoded[0].area - 0.06) > 1e-9:
+    errors.append("encode_MultiPolygon: encoded " + str([p.bounds for p in encoded]) + ", want the box cut at the west edge of the tile, of area 0.06, alone")
+for top in (0.9, 1.0):
+    tile = Tile()
+    tile.dem = DEM()
+    tile.dem.alt_dem = numpy.array([[0, top]])
+    vmap = VECT.Vector_Map()
+    vmap.insert_way(numpy.array([(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0), (0, 0, 0)]), "DUMMY", check = False)
+    first = vmap.next_node_id
+    VMAP.seed_open_water(vmap, tile)
+    VMAP.include_water_points(vmap, tile, geometry.Polygon())
+    got = {(round(vmap.nodes_dico[k][0] * 1200), round(vmap.nodes_dico[k][1] * 1200)) for k in range(first, vmap.next_node_id)}
+    want = {(i, j) for i in range(40, 1200, 40) for j in range(40, 1200, 40)} if top < 1 else set()
+    seeds = {k: [tuple(p.tolist()) for p in v] for (k, v) in vmap.seeds.items()}
+    inside = [0 < x < 1 and 0 < y < 1 for (x, y) in seeds.get("SEA", [])]
+    if got != want or list(seeds) != ["SEA"] or inside != [top < 1]:
+        errors.append("a tile without a seed and a DEM up to " + str(top) + " m: " + str(len(got)) + " water points and the seeds " + str(seeds) + ", want " + str(len(want)) + " and a seed of the sea " + ("inside the tile" if top < 1 else "outside it"))
+if errors:
+    sys.exit("\\n".join(errors))
+"""
+
 # The rasters that Step 3 computes from the mesh: the heights of a plane,
 # the water posts around water cells, the distance of Laminar's
 # CalcWaterBathymetry against a literal port of its loops, and a floor
@@ -1849,6 +1947,7 @@ def test_tile(work, top, errors):
         f.write("custom_scenery_dir=" + scenery_dir + "\n")
     errors += check("globalscenery", global_scenery_code, [gs], work, top, os.path.join(work, "Ortho4XP.log"))
     errors += check("rasters", rasters_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
+    errors += check("waterpoints", water_points_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
     if errors:
         return errors
 
@@ -1889,6 +1988,22 @@ def test_tile(work, top, errors):
     vertices = [[float(x) for x in line.split()[:3]] for line in lines[i + 2:i + 2 + int(lines[i + 1])]]
     i = lines.index("Triangles")
     triangles = [[int(x) for x in line.split()[:3]] for line in lines[i + 2:i + 2 + int(lines[i + 1])]]
+    # Step 1 adds water points, nodes on no edge, on interior posts of the
+    # even lattice in the sea or the lake, which the mesh keeps.
+    with open(os.path.join(build, "Data" + tile + ".node")) as f:
+        nodes = {int(w[0]): (float(w[1]), float(w[2])) for w in (line.split() for line in f.read().split("\n")[1:]) if len(w) > 2}
+    with open(os.path.join(build, "Data" + tile + ".poly")) as f:
+        lines = f.read().split("\n")
+    on_edges = {int(n) for line in lines[3:3 + int(lines[2].split()[0])] for n in line.split()[1:3]}
+    posts = [(x * 1200, y * 1200) for (k, (x, y)) in nodes.items() if k not in on_edges]
+    ((lat0, lon0), (lat1, lon1)) = (osm["water"][0][0][0], osm["water"][0][0][2])
+    in_lake = lambda i, j: lon0 < 5 + i / 1200 < lon1 and lat0 < 45 + j / 1200 < lat1
+    kept = {(round((lon - 5) * 1200, 3), round((lat - 45) * 1200, 3)) for (lon, lat, z) in vertices}
+    bad = [(i, j) for (i, j) in posts if abs(i - round(i)) > 1e-3 or abs(j - round(j)) > 1e-3
+        or round(i) % 2 or round(j) % 2 or not (0 < i < 1200 and 0 < j < 1200)
+        or not (i + j < 300 or in_lake(i, j)) or (round(i, 3), round(j, 3)) not in kept]
+    if bad or not [1 for (i, j) in posts if i + j < 300] or not [1 for (i, j) in posts if in_lake(i, j)]:
+        errors.append("Step 1: " + str(len(posts)) + " water points, " + str(bad[:3]) + " off the lattice, out of the water, or out of the mesh, want some in the sea and the lake")
     top_alt = 100000 * max(v[2] for v in vertices)
     if not 1150 < top_alt < 1201:
         errors.append(mesh + ": highest vertex at " + str(round(top_alt)) + " m, want the 1200 m of the hill")
