@@ -2317,7 +2317,7 @@ def convert_texture(
     erase_tmp_tif = False
     dxt5 = False
     masked_texture = False
-    if tile.imprint_masks_to_dds and type == "dds":
+    if tile.imprint and type == "dds":
         masked_texture = os.path.exists(
             os.path.join(
                 tile.build_dir,
