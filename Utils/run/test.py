@@ -1583,6 +1583,11 @@ def check_xp12(top, build):
             if (flags, depth) != want or far != -1:
                 errors.append("xp12: " + name + ": a patch with flags " + str(flags) + ", depth " + str(depth) + ", and far LOD " + str(far) + ", want " + str(want) + " and -1")
                 break
+            # Water is flat, as in Laminar's DSFs.
+            tilted = [v for v in vertices if abs(v[3]) > 1e-4 or abs(v[4]) > 1e-4]
+            if tilted:
+                errors.append("xp12: " + name + ": normal " + str(tilted[0][3:5]) + " at " + str(tilted[0][:2]) + ", want 0, 0")
+                break
     return errors + check_fetch(text, patches, ("_sea.ter", "terrain_Water"))
 
 # The rasters of the built DSF, which DSFTool writes beside the text, as
