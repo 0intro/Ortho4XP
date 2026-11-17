@@ -61,6 +61,7 @@ config = {
     "road_level": 1,
     "cover_airports_with_highres": "True",
     "cover_zl": 15,
+    "use_decal_on_terrain": True,
 }
 
 osm = {
@@ -1499,8 +1500,19 @@ def test_tile(work, top, errors):
         errors.append(airport + ": missing, Step 3 lost the airport bounds")
     if not glob.glob(os.path.join(top, "Masks", "+40+000", tile, "*.png")):
         errors.append("masks: none")
-    if not glob.glob(os.path.join(build, "terrain", "*.ter")):
+    ters = glob.glob(os.path.join(build, "terrain", "*.ter"))
+    if not ters:
         errors.append("terrain: no .ter files")
+    # The decal of use_decal_on_terrain goes on land, and the water gets
+    # none.
+    decals = []
+    for path in ters:
+        with open(path) as f:
+            if "DECAL_LIB" in f.read():
+                decals.append(os.path.basename(path))
+    wet = sorted(t for t in decals if "_sea" in t or "_water" in t)
+    if not decals or wet:
+        errors.append("terrain: decals on " + str(len(decals)) + " files, " + str(len(wet)) + " of water such as " + str(wet[:2]) + ", want them on land only")
 
     dsf = os.path.join(build, "Earth nav data", "+40+000", tile + ".dsf")
     with open(dsf, "rb") as f:
