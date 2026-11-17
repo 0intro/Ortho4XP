@@ -4,7 +4,7 @@ import time
 import requests
 import zipfile
 import itertools
-from math import sqrt
+from math import ceil, floor, sqrt
 import array
 import numpy
 
@@ -422,16 +422,18 @@ def build_combined_raster(source, lat, lon, info_only):
     return (epsg, x0, y0, x1, y1, nodata, nxdem, nydem, alt_dem)
 
 ################################################################################
-def read_raster_file(file_name, lat, lon, info_only=False):
+def read_raster_file(file_name, lat, lon, info_only=False, window=False):
     # Reads the georeferenced raster file_name, with Gdal when it is there
-    # and as a GeoTIFF otherwise, for the tile at lat, lon. Returns, as
+    # and as a GeoTIFF otherwise, for the tile at lat, lon, and with window
+    # the part of it over the tile alone. Returns, as
     # read_elevation_from_file does, its EPSG code, the coordinates of its
     # first and last posts from the corner of the tile, its no_data value,
     # its size, and its values, row 0 to the north, with -32768 for no
     # data. Raises on a file it cannot read.
     read_raster = read_raster_gdal if has_gdal else read_geotiff
+    box = (lon, lat, lon + 1, lat + 1) if window else None
     (alt_dem, geo, nodata, epsg, nxdem, nydem) = read_raster(
-        file_name, info_only
+        file_name, info_only, box
     )
     if not info_only:
         # Float rasters may mark nodata with NaN, whatever their tag.
@@ -584,29 +586,43 @@ def read_elevation_from_file(
     return (epsg, x0, y0, x1, y1, nodata, nxdem, nydem, alt_dem)
 
 
-def read_raster_gdal(file_name, info_only):
+def read_raster_gdal(file_name, info_only, box=None):
     ds = gdal.Open(file_name)
     rs = ds.GetRasterBand(1)
-    alt_dem = None if info_only else rs.ReadAsArray().astype(numpy.float32)
+    geo = ds.GetGeoTransform()
+    (x, y, nx, ny) = (0, 0, ds.RasterXSize, ds.RasterYSize)
+    if box:
+        (x, y, nx, ny) = raster_window(geo, nx, ny, box)
+        geo = (geo[0] + x * geo[1], geo[1], 0.0, geo[3] + y * geo[5], 0.0, geo[5])
+    alt_dem = None
+    if not info_only:
+        alt_dem = rs.ReadAsArray(x, y, nx, ny).astype(numpy.float32)
     try:
         epsg = int(ds.GetProjection().split('"')[-2])
     except (IndexError, ValueError):
         epsg = None
-    return (
-        alt_dem,
-        ds.GetGeoTransform(),
-        rs.GetNoDataValue(),
-        epsg,
-        ds.RasterXSize,
-        ds.RasterYSize,
-    )
+    return (alt_dem, geo, rs.GetNoDataValue(), epsg, nx, ny)
+
+
+def raster_window(geo, nx, ny, box):
+    # The pixels of a raster of nx by ny pixels and geotransform geo that
+    # cover box, as west, south, east and north, with 2 more around, and 2
+    # by 2 at least: the column and row of the first, and their numbers.
+    (west, south, east, north) = box
+    cols = sorted(((west - geo[0]) / geo[1], (east - geo[0]) / geo[1]))
+    rows = sorted(((north - geo[3]) / geo[5], (south - geo[3]) / geo[5]))
+    x0 = min(max(floor(cols[0]) - 2, 0), max(nx - 2, 0))
+    y0 = min(max(floor(rows[0]) - 2, 0), max(ny - 2, 0))
+    x1 = min(max(ceil(cols[1]) + 2, x0 + 2), nx)
+    y1 = min(max(ceil(rows[1]) + 2, y0 + 2), ny)
+    return (x0, y0, x1 - x0, y1 - y0)
 
 
 # Reads a GeoTIFF with Pillow, and georeferences it as GDAL does from the
 # tags ModelPixelScale (33550), ModelTiepoint (33922), and GeoKeyDirectory
 # (34735) of OGC GeoTIFF 1.1 (https://docs.ogc.org/is/19-008r4/19-008r4.html),
 # and the nodata tag of GDAL (42113).
-def read_geotiff(file_name, info_only):
+def read_geotiff(file_name, info_only, box=None):
     with Image.open(file_name) as im:
         tags = im.tag_v2
         # Pillow reads 8-bit samples as unsigned, even those that the
@@ -631,15 +647,19 @@ def read_geotiff(file_name, info_only):
             if entries[n + 1] == 0
         }
         nodata = float(tags[42113]) if 42113 in tags else None
-        alt_dem = None if info_only else numpy.array(im, dtype=numpy.float32)
+        # GTRasterType 2 is PixelIsPoint: the tiepoint is the center of a
+        # pixel, and GDAL moves it to the pixel's corner.
+        if geokeys.get(1025) == 2:
+            (x, y) = (x - sx / 2, y + sy / 2)
+        geo = (x - i * sx, sx, 0.0, y + j * sy, 0.0, -sy)
         (nxdem, nydem) = im.size
+        if box:
+            (x0, y0, nxdem, nydem) = raster_window(geo, nxdem, nydem, box)
+            geo = (geo[0] + x0 * sx, sx, 0.0, geo[3] - y0 * sy, 0.0, -sy)
+            im = im.crop((x0, y0, x0 + nxdem, y0 + nydem))
+        alt_dem = None if info_only else numpy.array(im, dtype=numpy.float32)
     # The EPSG code is the ProjectedCSType key, or else the GeographicType key.
     epsg = geokeys.get(3072, geokeys.get(2048))
-    # GTRasterType 2 is PixelIsPoint: the tiepoint is the center of a pixel,
-    # and GDAL moves it to the pixel's corner.
-    if geokeys.get(1025) == 2:
-        (x, y) = (x - sx / 2, y + sy / 2)
-    geo = (x - i * sx, sx, 0.0, y + j * sy, 0.0, -sy)
     return (alt_dem, geo, nodata, epsg, nxdem, nydem)
 
 

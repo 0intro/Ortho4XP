@@ -437,6 +437,11 @@ a particular server.",
         "default": "",
         "hint": "Path to an elevation data file to be used instead of the default Viewfinderpanoramas.org ones (J. de Ferranti). The raster must be in geopgraphical coordinates (EPSG:4326) but the extent need not match the tile boundary (a GeoTIFF, or any raster that Gdal reads when it is installed). Regions of the tile that are not covered by the raster are mapped to zero altitude (can be useful for high resolution data over islands in particular).     ",
     },
+    "custom_bathymetry": {
+        "type": str,
+        "default": "",
+        "hint": "Path to a raster of the elevation of the floor of the water, in metres, negative below sea level, such as a GeoTIFF of EMODnet or GEBCO bathymetry, in geographical coordinates (EPSG:4326). Where it lies below the surface of the water, it replaces the floor that Step 3 computes from the distance to the shore, within 1 m to 50 m below the surface, as X-Plane 12 draws water from it. Step 3 reads the part of it over the tile.",
+    },
     "fill_nodata": {
         "type": bool,
         "default": True,
@@ -510,7 +515,7 @@ list_dsf_vars = [
     "terrain_casts_shadows",
     "use_decal_on_terrain",
 ]
-list_other_vars = ["custom_dem", "fill_nodata"]
+list_other_vars = ["custom_dem", "fill_nodata", "custom_bathymetry"]
 list_tile_vars = (
     list_vector_vars
     + list_mesh_vars
@@ -830,6 +835,25 @@ class Ortho4XP_Config(tk.Toplevel):
         )
         dem_button.grid(row=0, column=2, padx=2, pady=0, sticky=W)
         dem_button.bind("<Shift-ButtonPress-1>", self.add_dem)
+        item = "custom_bathymetry"
+        ttk.Button(
+            self.frame_dem,
+            text=item,
+            takefocus=False,
+            command=lambda item=item: self.popup(item, cfg_vars[item]["hint"]),
+        ).grid(row=1, column=0, padx=2, pady=2, sticky=E + W)
+        self.entry_[item] = ttk.Entry(
+            self.frame_dem, textvariable=self.v_[item], width=80
+        )
+        self.entry_[item].grid(
+            row=1, column=1, padx=(2, 0), pady=8, sticky=N + S + W + E
+        )
+        ttk.Button(
+            self.frame_dem,
+            image=self.folder_icon,
+            command=self.choose_bathymetry,
+            style="Flat.TButton",
+        ).grid(row=1, column=2, padx=2, pady=0, sticky=W)
         item = "fill_nodata"
         ttk.Button(
             self.frame_cfg,
@@ -1008,6 +1032,18 @@ class Ortho4XP_Config(tk.Toplevel):
         )
         if tmp:
             self.v_["custom_dem"].set(str(tmp))
+
+    def choose_bathymetry(self):
+        tmp = filedialog.askopenfilename(
+            parent=self,
+            title="Choose bathymetry file",
+            filetypes=[
+                ("Raster files", (".tif", ".tiff", ".img")),
+                ("all files", ".*"),
+            ],
+        )
+        if tmp:
+            self.v_["custom_bathymetry"].set(str(tmp))
 
     def add_dem(self, event):
         tmp = filedialog.askopenfilename(
