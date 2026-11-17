@@ -120,7 +120,7 @@ def build_masks(tile, for_imagery=False):
     water_tris = record_water_tris(tile)
     if not water_tris:
         return 0
-    (dico_sea, dico_inland) = water_tris
+    (dico_sea, dico_inland, dico_lake) = water_tris
 
     UI.vprint(1, "-> Construction of the masks")
 
@@ -155,6 +155,11 @@ def build_masks(tile, for_imagery=False):
                                          dico_inland, sea_level, tile) 
         if tile.masks_use_DEM_too:
             dem_array = build_dem_pre_mask(til_x, til_y, tile)
+            # The DEM tells land from the sea alone, as lakes lie above its
+            # mask_altitude_above too.
+            dem_array = draw_triangles(
+                dem_array, til_x, til_y, dico_lake.get((til_x, til_y), []), 0, tile
+            )
             pre_mask = numpy.maximum(pre_mask, dem_array)
             del(dem_array)
 
@@ -324,6 +329,24 @@ def build_water_pre_mask(til_x, til_y, mesh_list, dico_sea, dico_inland,
 ################################################################################
 
 ################################################################################
+def draw_triangles(img_array, til_x, til_y, tris, fill, tile):
+    # Returns img_array, a pre-mask of the mask til_x, til_y with its margin
+    # of 1024 pixels, with the triangles tris, as lat, lon triples, drawn
+    # in it in the grey fill.
+    (latm0, lonm0) = GEO.gtile_to_wgs84(til_x, til_y, tile.mask_zl)
+    (px0, py0) = GEO.wgs84_to_pix(latm0, lonm0, tile.mask_zl)
+    im = Image.fromarray(img_array)
+    draw = ImageDraw.Draw(im)
+    for (lat1, lon1, lat2, lon2, lat3, lon3) in tris:
+        corners = []
+        for (lat, lon) in ((lat1, lon1), (lat2, lon2), (lat3, lon3)):
+            (px, py) = GEO.wgs84_to_pix(lat, lon, tile.mask_zl)
+            corners.append((px - px0 + 1024, py - py0 + 1024))
+        draw.polygon(corners, fill=fill)
+    return numpy.array(im, dtype=numpy.uint8)
+
+
+################################################################################
 def build_dem_pre_mask(til_x, til_y, tile):
     (latm0, lonm0) = GEO.gtile_to_wgs84(til_x, til_y, tile.mask_zl)
     (px0, py0) = GEO.wgs84_to_pix(latm0, lonm0, tile.mask_zl)
@@ -416,6 +439,9 @@ def record_water_tris(tile):
     ####################
     dico_sea = {}
     dico_inland = {}
+    # The triangles of dico_sea that lie off the sea: lakes, masked as
+    # SEA_EQUIV or with all inland water.
+    dico_lake = {}
     ####################
     [til_x_min, til_y_min] = GEO.wgs84_to_orthogrid(
         tile.lat + 1, tile.lon, tile.mask_zl
@@ -499,10 +525,15 @@ def record_water_tris(tile):
             )
             a = (til_x2 // 16) % 4
             b = (til_y2 // 16) % 4
+            lake = not (tri_type & 2)
             for key in mask_keys(til_x, til_y, a, b):
                 dico_sea.setdefault(key, []).append(
                     (lat1, lon1, lat2, lon2, lat3, lon3)
                 )
+                if lake:
+                    dico_lake.setdefault(key, []).append(
+                        (lat1, lon1, lat2, lon2, lat3, lon3)
+                    )
         f_mesh.close()
         if not tile.use_masks_for_inland:
             UI.vprint(2, "   Taking care of inland water near shoreline")
@@ -561,7 +592,7 @@ def record_water_tris(tile):
                         ]
             f_mesh.close()
     
-    return (dico_sea, dico_inland)
+    return (dico_sea, dico_inland, dico_lake)
 ################################################################################
         
 ################################################################################

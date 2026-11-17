@@ -1676,6 +1676,42 @@ if errors:
     sys.exit("\\n".join(errors))
 """
 
+# With use_masks_for_inland and masks_use_DEM_too, the mask of the lake,
+# on the plateau of the DEM, stays below white at its centre, where the
+# DEM alone tells land. The masks of the tile go back as they were.
+lake_mask_code = """
+import os
+import shutil
+import numpy
+from PIL import Image
+import O4_Config_Utils as CFG
+import O4_File_Names as FNAMES
+import O4_Geo_Utils as GEO
+import O4_Mask_Utils as MASK
+tile = CFG.Tile(45, 5, "")
+tile.read_from_config()
+tile.use_masks_for_inland = True
+tile.masks_use_DEM_too = True
+masks = FNAMES.mask_dir(45, 5)
+shutil.copytree(masks, masks + ".lake")
+try:
+    if not MASK.build_masks(tile):
+        sys.exit("Step 2.5 failed")
+    (lat, lon) = (45.846, 5.608)
+    (til_x, til_y) = GEO.wgs84_to_orthogrid(lat, lon, tile.mask_zl)
+    (px, py) = GEO.wgs84_to_pix(lat, lon, tile.mask_zl)
+    (px0, py0) = GEO.wgs84_to_pix(*GEO.gtile_to_wgs84(til_x, til_y, tile.mask_zl), tile.mask_zl)
+    name = os.path.join(masks, FNAMES.legacy_mask(til_x, til_y))
+    if not os.path.isfile(name):
+        sys.exit("Step 2.5 made no mask " + name + " for the lake")
+    value = numpy.asarray(Image.open(name))[py - py0, px - px0]
+    if value >= 255:
+        sys.exit(name + ": " + str(value) + " at the centre of the lake, want below 255")
+finally:
+    shutil.rmtree(masks)
+    os.replace(masks + ".lake", masks)
+"""
+
 # Shift-click on Build Mesh: moulinette reorders the mesh, which keeps its
 # triangles, groups them per texture of the zoomlevel, and numbers the
 # vertices in their order of first use. Step 3 then builds the DSF again.
@@ -2686,6 +2722,7 @@ def test_tile(work, top, errors):
     errors += xp12 or check_xp12(top, build)
     errors += check("rebuild", rebuild_code, [], work, top, log)
     errors += check("streamer", streamer_code, [], work, top, log)
+    errors += check("lakemask", lake_mask_code, [], work, top, log)
     errors += check("overlay", overlay_code, [gs], work, top, log)
     errors += check("norasters", no_rasters_code, [os.path.join(work, "Global Scenery 11")], work, top, log)
     errors += check("badoverlay", bad_overlay_code, [os.path.join(work, "Global Scenery bad")], work, top, log)
