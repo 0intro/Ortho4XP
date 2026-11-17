@@ -646,9 +646,11 @@ if os.path.exists("pwned"):
     sys.exit("linking ran a command from the path")
 """
 
-# A Global Scenery DSF in the text form of DSFTool, with the two rasters
-# that Step 3 copies, a beach that overlays leave out by default, a
-# forest, and a road. It goes in a 7z archive, as in X-Plane 12.
+# A Global Scenery DSF in the text form of DSFTool, with rasters named as
+# X-Plane 12's, a beach that overlays leave out by default, a forest, and a
+# road. Step 3 copies its soundscape and its seasons, and computes the
+# elevation and sea_level. The sea_level is of 256 by 256 cells, as some
+# older Global Scenery DSFs hold. It goes in a 7z archive, as in X-Plane 12.
 global_scenery_code = """
 import os
 import subprocess
@@ -666,16 +668,16 @@ lines = [
     "POLYGON_DEF lib/g10/forests/test.for",
     "NETWORK_DEF lib/g10/roads.net",
 ]
-n = numpy.arange(101 * 101, dtype = "<i2")
-elevation = n % 300
-# The bathymetry of every other cell lies above the elevation, which
-# Step 3 lowers to 2 m below it.
-bathymetry = elevation - 100 + 150 * (n % 2)
-for (i, (name, alt)) in enumerate((("elevation", elevation), ("bathymetry", bathymetry))):
+rasters = (
+    ("elevation", 2, 5, 101, 1.0, "<i2"),
+    ("sea_level", 2, 1, 256, 1.0, "<i2"),
+    ("soundscape", 1, 6, 12, 1.0, "u1"),
+) + tuple((s, 1, 6, 8, 1.99454, "u1") for s in ("spr1", "spr2", "sum1", "sum2", "fal1", "fal2", "win1", "win2"))
+for (i, (name, bpp, flags, size, scale, kind)) in enumerate(rasters):
     raw = os.path.join(gs, name + ".raw")
-    alt.astype("<i2").tofile(raw)
+    (numpy.arange(size * size) % (250 if kind == "u1" else 300)).astype(kind).tofile(raw)
     lines.insert(i + 11, "RASTER_DEF " + name)
-    lines.append("RASTER_DATA version=1 bpp=2 flags=5 width=101 height=101 scale=1.0 offset=0.0 " + raw)
+    lines.append("RASTER_DATA version=1 bpp=" + str(bpp) + " flags=" + str(flags) + " width=" + str(size) + " height=" + str(size) + " scale=" + str(scale) + " offset=0.0 " + raw)
 for (kind, lon) in ((0, 5.3), (1, 5.5)):
     lines += ["BEGIN_POLYGON " + str(kind) + " 255 2", "BEGIN_WINDING"]
     for (x, y) in ((0, 0), (0.1, 0), (0.1, 0.1), (0, 0.1)):
@@ -691,7 +693,98 @@ subprocess.run([OVL.seven_zip(), "a", os.path.join(gs, "+45+005.7z"), dsf], stdo
 os.replace(os.path.join(gs, "+45+005.7z"), os.path.join(dsf_dir, "+45+005.dsf"))
 """
 
-# Step 3 with an overlay source DSF made of properties only.
+# The rasters that Step 3 computes from the mesh: the heights of a plane,
+# the water posts around water cells, the distance of Laminar's
+# CalcWaterBathymetry against a literal port of its loops, and a floor
+# truncated toward zero, as X-Plane's tools write it.
+rasters_code = """
+import math
+import numpy
+import O4_Bathymetry as BATHY
+
+def laminar(wet):
+    (h, w) = wet.shape
+    bath = numpy.where(wet, math.inf, 0.0).tolist()
+    for (xs, ys) in ((range(w), range(h)), (range(w - 1, -1, -1), range(h)),
+                     (range(w - 1, -1, -1), range(h - 1, -1, -1)), (range(w), range(h - 1, -1, -1))):
+        for iy in ys:
+            for ix in xs:
+                v = bath[iy][ix]
+                if v <= 0:
+                    continue
+                b = min(v if iy == 0 else bath[iy - 1][ix], v if iy == h - 1 else bath[iy + 1][ix])
+                a = min(v if ix == 0 else bath[iy][ix - 1], v if ix == w - 1 else bath[iy][ix + 1])
+                if abs(a - b) < 1:
+                    d = (a + b + math.sqrt(2 - (a - b) ** 2)) * 0.5
+                else:
+                    d = min(a, b) + 1
+                if d < v:
+                    bath[iy][ix] = d
+    return numpy.array(bath)
+
+errors = []
+# Two triangles over the tile, of the plane z = 3 lon + 2 lat - 1 (in
+# posts) plus 100.
+nodes = numpy.zeros(4 * 5)
+for (k, (x, y)) in enumerate(((0, 0), (1, 0), (1, 1), (0, 1))):
+    nodes[5 * k : 5 * k + 3] = (5 + x, 45 + y, 100 + (3 * x + 2 * y - 1) * 1200)
+tris = numpy.array([0, 1, 2, 0, 2, 3])
+(elevation, cells, surface) = BATHY.rasterize(nodes, tris, [0, 2], 45, 5)
+(j, i) = numpy.mgrid[0:1201, 0:1201]
+if numpy.abs(elevation - (100 + 3 * i + 2 * j - 1200)).max() > 1e-6:
+    errors.append("rasterize: the plane is off by " + str(numpy.abs(elevation - (100 + 3 * i + 2 * j - 1200)).max()))
+# The second triangle, of water, holds the cells on and above the
+# diagonal. The water surface at a post is its height there, at the posts
+# one post below the diagonal that of the diagonal, and beyond, none.
+want = numpy.mgrid[0:1200, 0:1200]
+if (cells != (want[0] >= want[1])).any():
+    errors.append("rasterize: water cells " + str(int(cells.sum())) + ", want the " + str(int((want[0] >= want[1]).sum())) + " on and above the diagonal")
+want = numpy.where(j >= i, 100 + 3 * i + 2 * j - 1200, numpy.where(i - j == 1, 100 + 2.5 * (i + j) - 1200, numpy.inf))
+off = numpy.isinf(surface) != numpy.isinf(want)
+both = ~numpy.isinf(surface) & ~numpy.isinf(want)
+off[both] = numpy.abs(surface[both] - want[both]) > 1e-6
+if off.any():
+    (b, a) = numpy.argwhere(off)[0]
+    errors.append("rasterize: water surface " + str(surface[b, a]) + " at post " + str((a, b)) + ", want " + str(want[b, a]))
+# Water at two levels: a lake at 100 m inside the bounding box of a
+# narrow river at 50 m, 0.35 degree from it, keeps its own surface.
+nodes = numpy.array([
+    5.1, 45.1, 50, 0, 0, 5.9, 45.9, 50, 0, 0, 5.9, 45.902, 50, 0, 0,
+    5.7, 45.2, 100, 0, 0, 5.8, 45.2, 100, 0, 0, 5.8, 45.3, 100, 0, 0], float)
+(elevation, cells, surface) = BATHY.rasterize(nodes, numpy.array([0, 1, 2, 3, 4, 5]), [2, 2], 45, 5)
+if abs(surface[300, 900] - 100) > 1e-6 or abs(surface[1080, 1078] - 50) > 1e-6:
+    errors.append("rasterize: water surfaces " + str((surface[300, 900], surface[1080, 1078])) + " in the lake and on the river, want 100 and 50")
+cells = numpy.zeros((3, 3), bool)
+cells[1, 1] = True
+if not (BATHY.wet_posts(cells) == numpy.array([[0, 0, 0, 0], [0, 1, 1, 0], [0, 1, 1, 0], [0, 0, 0, 0]], bool)).all():
+    errors.append("wet_posts: " + str(BATHY.wet_posts(cells).astype(int).tolist()))
+rng = numpy.random.default_rng(1)
+for n in range(100):
+    wet = rng.random(rng.integers(2, 20, 2)) < rng.random()
+    (got, want) = (BATHY.distance(wet), laminar(wet))
+    same = numpy.isinf(got) == numpy.isinf(want)
+    if not same.all() or numpy.abs(got[~numpy.isinf(got)] - want[~numpy.isinf(want)]).max(initial = 0) > 1e-9:
+        errors.append("distance: differs from CalcWaterBathymetry on " + str(wet.astype(int).tolist()))
+        break
+for (what, wet, want) in (("all water", True, numpy.inf), ("all land", False, 0)):
+    got = BATHY.distance(numpy.full((5, 7), wet))
+    if (got != want).any():
+        errors.append("distance on " + what + ": " + str(got.tolist()) + ", want " + str(want) + " everywhere")
+# At -5 m and 1.3 posts from land, the floor lies 2.2 m lower, at -7.2,
+# which X-Plane's tools truncate to -7 where the floor function gives -8.
+got = BATHY.floor(numpy.array([[-5, -5]], numpy.int16), numpy.array([[1.3, 0]]), numpy.array([[numpy.inf, -2.5]]))
+if got.tolist() != [[-7, -6]]:
+    errors.append("floor: " + str(got.tolist()) + ", want [[-7, -6]]")
+got = BATHY.to_int16(numpy.array([371.9999999999999, 371.9, -7.2, -0.0000000000001]))
+if got.tolist() != [372, 371, -7, 0]:
+    errors.append("to_int16: " + str(got.tolist()) + ", want [372, 371, -7, 0]")
+if errors:
+    sys.exit("\\n".join(errors))
+"""
+
+# Step 3 with an overlay source DSF made of properties only, and with
+# one that holds a single season, which X-Plane takes only with the other
+# seven: Step 3 copies its soundscape alone.
 no_rasters_code = """
 import os
 import subprocess
@@ -704,9 +797,19 @@ text = os.path.join(OVL.custom_overlay_src, "+45+005.txt")
 with open(text, "w") as f:
     f.write("PROPERTY sim/west 5\\nPROPERTY sim/east 6\\nPROPERTY sim/north 46\\nPROPERTY sim/south 45\\n")
 subprocess.run([OVL.dsftool_cmd.strip(), "-text2dsf", text, os.path.join(dsf_dir, "+45+005.dsf")], stdout = subprocess.DEVNULL, check = True)
-rasters = DSF.extract_elevation_and_bathymetry_data(45, 5)
-if rasters != (b"", b""):
+rasters = DSF.global_scenery_rasters(45, 5)
+if rasters != []:
     sys.exit("rasters " + repr(rasters)[:60] + ", want none")
+with open(text, "a") as f:
+    for name in ("soundscape", "spr1"):
+        open(os.path.join(OVL.custom_overlay_src, name + ".raw"), "wb").write(bytes(64))
+        f.write("RASTER_DEF " + name + "\\n")
+    for name in ("soundscape", "spr1"):
+        f.write("RASTER_DATA version=1 bpp=1 flags=6 width=8 height=8 scale=1.0 offset=0.0 " + os.path.join(OVL.custom_overlay_src, name + ".raw") + "\\n")
+subprocess.run([OVL.dsftool_cmd.strip(), "-text2dsf", text, os.path.join(dsf_dir, "+45+005.dsf")], stdout = subprocess.DEVNULL, check = True)
+names = [r[0] for r in DSF.global_scenery_rasters(45, 5)]
+if names != [b"soundscape"]:
+    sys.exit("rasters " + str(names) + " of a DSF with one season, want the soundscape alone")
 """
 
 # Step 4 on a source DSF that DSFTool cannot read. DSFTool says so on
@@ -1456,6 +1559,46 @@ def check(name, code, args, work, top, log, timeout = 300):
         return []
     return [name + ": " + line for line in err.splitlines() if line.strip()] or [name + ": exit status " + str(status) + ", see " + log]
 
+# The rasters of the built DSF, which DSFTool writes beside the text, as
+# text.<name>.raw: the soundscape and the seasons of the Global Scenery,
+# and the elevation and sea_level that Step 3 computes from the mesh.
+seasons = ["spr1", "spr2", "sum1", "sum2", "fal1", "fal2", "win1", "win2"]
+
+def check_rasters(text, gs, vertices, triangles):
+    errors = []
+    for name in ["soundscape"] + seasons:
+        with open(os.path.join(gs, name + ".raw"), "rb") as f, open(text + "." + name + ".raw", "rb") as g:
+            if f.read() != g.read():
+                errors.append(text + "." + name + ".raw: differs from the Global Scenery's")
+    e = numpy.fromfile(text + ".elevation.raw", "<i2").astype(int).reshape(1201, 1201)
+    f = numpy.fromfile(text + ".sea_level.raw", "<i2").astype(int).reshape(1201, 1201)
+    # The mesh at posts picked at random, by brute force.
+    v = numpy.array(vertices)
+    t = numpy.array(triangles) - 1
+    (x, y, z) = ((v[:, 0] - lon) * 1200, (v[:, 1] - lat) * 1200, v[:, 2] * 100000)
+    (a, b, c) = (t[:, 0], t[:, 1], t[:, 2])
+    d = (y[b] - y[c]) * (x[a] - x[c]) + (x[c] - x[b]) * (y[a] - y[c])
+    for (i, j) in numpy.random.default_rng(1).integers(0, 1201, (40, 2)):
+        l0 = ((y[b] - y[c]) * (i - x[c]) + (x[c] - x[b]) * (j - y[c])) / d
+        l1 = ((y[c] - y[a]) * (i - x[c]) + (x[a] - x[c]) * (j - y[c])) / d
+        l2 = 1 - l0 - l1
+        k = numpy.flatnonzero((l0 >= -1e-9) & (l1 >= -1e-9) & (l2 >= -1e-9))[0]
+        want = l0[k] * z[a[k]] + l1[k] * z[b[k]] + l2[k] * z[c[k]]
+        if abs(e[j, i] - want) > 1:
+            errors.append(text + ".elevation.raw: " + str(e[j, i]) + " at post " + str((i, j)) + ", want the " + str(round(want, 1)) + " of the mesh")
+            break
+    # The floor lies 1 m below land and at least 1 m below water, 50 m
+    # below the open sea at the south west corner, and at the centre of the
+    # lake of 1.25 by 1.3 km, about 8 posts from its shore, 29 m below.
+    if (f > e - 1).any():
+        errors.append(text + ".sea_level.raw: above the elevation minus 1 m at " + str(int((f > e - 1).sum())) + " posts")
+    if (e[0, 0], f[0, 0]) != (0, -50):
+        errors.append(text + ": elevation and sea_level " + str((e[0, 0], f[0, 0])) + " at the south west corner, in the sea, want 0 and -50")
+    (i, j) = (round(0.608 * 1200), round(0.846 * 1200))
+    if not -40 <= f[j, i] - e[j, i] <= -20:
+        errors.append(text + ": sea_level " + str(f[j, i] - e[j, i]) + " m from the surface at the centre of the lake, want -40 to -20")
+    return errors
+
 def test_tile(work, top, errors):
     image = Image.new("RGB", (256, 256), color)
     f = io.BytesIO()
@@ -1504,6 +1647,7 @@ def test_tile(work, top, errors):
         f.write("custom_overlay_src=" + os.path.relpath(gs, top) + "\n")
         f.write("custom_scenery_dir=" + scenery_dir + "\n")
     errors += check("globalscenery", global_scenery_code, [gs], work, top, os.path.join(work, "Ortho4XP.log"))
+    errors += check("rasters", rasters_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
     if errors:
         return errors
 
@@ -1542,6 +1686,8 @@ def test_tile(work, top, errors):
         lines = f.read().split("\n")
     i = lines.index("Vertices")
     vertices = [[float(x) for x in line.split()[:3]] for line in lines[i + 2:i + 2 + int(lines[i + 1])]]
+    i = lines.index("Triangles")
+    triangles = [[int(x) for x in line.split()[:3]] for line in lines[i + 2:i + 2 + int(lines[i + 1])]]
     top_alt = 100000 * max(v[2] for v in vertices)
     if not 1150 < top_alt < 1201:
         errors.append(mesh + ": highest vertex at " + str(round(top_alt)) + " m, want the 1200 m of the hill")
@@ -1638,16 +1784,11 @@ def test_tile(work, top, errors):
     else:
         with open(text, encoding = "latin-1") as f:
             out = f.read()
-        for line in ("PROPERTY sim/west 5", "RASTER_DEF elevation", "RASTER_DEF bathymetry"):
-            if line not in out:
-                errors.append(text + ": missing " + line)
-        # DSFTool writes the rasters beside the text, as dsf.txt.<name>.raw.
-        elevation = numpy.fromfile(os.path.join(gs, "elevation.raw"), "<i2")
-        bathymetry = numpy.fromfile(os.path.join(gs, "bathymetry.raw"), "<i2")
-        for (name, want) in (("elevation", elevation), ("bathymetry", numpy.minimum(bathymetry, elevation - 2))):
-            raw = text + "." + name + ".raw"
-            if not os.path.exists(raw) or not numpy.array_equal(numpy.fromfile(raw, "<i2"), want):
-                errors.append(raw + ": differs from the " + name + " of the Global Scenery DSF, as Step 3 makes it")
+        defs = [line[len("RASTER_DEF "):] for line in out.split("\n") if line.startswith("RASTER_DEF ")]
+        if "PROPERTY sim/west 5" not in out or defs != ["elevation", "sea_level", "soundscape"] + seasons:
+            errors.append(text + ": rasters " + str(defs) + ", want elevation, sea_level, soundscape, and the eight seasons, and sim/west 5")
+        else:
+            errors += check_rasters(text, gs, vertices, triangles)
     errors += check("xp12", xp12_code, [], work, top, log)
     errors += check("overlay", overlay_code, [gs], work, top, log)
     errors += check("norasters", no_rasters_code, [os.path.join(work, "Global Scenery 11")], work, top, log)
