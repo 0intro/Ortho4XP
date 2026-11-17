@@ -173,6 +173,9 @@ def recut_water_tris(node_coords, tri_idx, tri_types):
 # are in units of 1/1200 of a degree from that corner.
 posts = 1201
 step = 1200
+# The distance to land counts the water of the tiles around within pad
+# cells, as Laminar's rasters match across tile edges.
+pad = 40
 
 
 def boxes(x, y, tri_idx, n, offset, margin, chunk=1 << 21):
@@ -241,10 +244,30 @@ def nearest(x, y, z, tri_idx, t, px, py):
     return (h, d)
 
 
+def water_triangles(tri_idx, tri_types):
+    tri_idx = numpy.asarray(tri_idx, dtype=numpy.int64)
+    water = numpy.flatnonzero(numpy.asarray(tri_types) != 0)
+    return tri_idx.reshape(-1, 3)[water].ravel()
+
+
+def water_cells(node_coords, tri_idx, tri_types, lat, lon, cells):
+    # Marks in cells, cells of 1/1200 of a degree from pad cells south and
+    # west of the tile whose south west corner is lat, lon, those whose
+    # centres lie in the water triangles of a mesh, of that tile or of
+    # another.
+    n = cells.shape[0]
+    x = (node_coords[0::5] - lon) * step + pad
+    y = (node_coords[1::5] - lat) * step + pad
+    wet_idx = water_triangles(tri_idx, tri_types)
+    flat = cells.reshape(-1)
+    for (t, i, j) in boxes(x, y, wet_idx, n, 0.5, 0.0):
+        ok = inside(x, y, wet_idx, t, i + 0.5, j + 0.5)[3]
+        flat[j[ok] * n + i[ok]] = True
+
+
 def rasterize(node_coords, tri_idx, tri_types, lat, lon):
-    # Returns the height of the mesh at each post, the cells of 1/1200 of
-    # a degree whose centres lie in its water triangles, and at each post
-    # the lowest water surface within one post, inf where there is none.
+    # Returns the height of the mesh at each post, and at each post the
+    # lowest water surface within one post, inf where there is none.
     x = (node_coords[0::5] - lon) * step
     y = (node_coords[1::5] - lat) * step
     z = node_coords[2::5]
@@ -259,22 +282,13 @@ def rasterize(node_coords, tri_idx, tri_types, lat, lon):
             + l2 * z[tri_idx[3 * t + 2]]
         )
     elevation = elevation.reshape(posts, posts)
-    water = numpy.flatnonzero(numpy.asarray(tri_types) != 0)
-    wet_idx = tri_idx.reshape(-1, 3)[water].ravel()
-    cells = numpy.zeros(step * step, dtype=bool)
-    for (t, i, j) in boxes(x, y, wet_idx, step, 0.5, 0.0):
-        ok = inside(x, y, wet_idx, t, i + 0.5, j + 0.5)[3]
-        cells[j[ok] * step + i[ok]] = True
+    wet_idx = water_triangles(tri_idx, tri_types)
     surface = numpy.full(posts * posts, numpy.inf)
     for (t, i, j) in boxes(x, y, wet_idx, posts, 0.0, 1.0):
         (h, d) = nearest(x, y, z, wet_idx, t, i, j)
         near = d <= 1
         numpy.minimum.at(surface, j[near] * posts + i[near], h[near])
-    return (
-        elevation,
-        cells.reshape(step, step),
-        surface.reshape(posts, posts),
-    )
+    return (elevation, surface.reshape(posts, posts))
 
 
 def wet_posts(cells):
@@ -331,9 +345,12 @@ def floor(elevation, d, surface):
     return to_int16(numpy.minimum(elevation, surface) - depth)
 
 
-def rasters(node_coords, tri_idx, tri_types, lat, lon):
+def rasters(node_coords, tri_idx, tri_types, lat, lon, around=None):
     # Returns the elevation and sea_level rasters of the mesh, int16.
-    (elevation, cells, surface) = rasterize(
+    # around holds the water cells of the tiles around, as water_cells
+    # marks them, and water where nothing is known of them, which then
+    # brings no land, as beyond the edge of CalcWaterBathymetry.
+    (elevation, surface) = rasterize(
         node_coords, tri_idx, tri_types, lat, lon
     )
     missing = numpy.isnan(elevation)
@@ -346,4 +363,9 @@ def rasters(node_coords, tri_idx, tri_types, lat, lon):
         )
         elevation[missing] = numpy.nanmean(elevation) if (~missing).any() else 0
     elevation = to_int16(elevation)
-    return (elevation, floor(elevation, distance(wet_posts(cells)), surface))
+    n = step + 2 * pad
+    cells = numpy.ones((n, n), dtype=bool) if around is None else around.copy()
+    cells[pad : pad + step, pad : pad + step] = False
+    water_cells(node_coords, tri_idx, tri_types, lat, lon, cells)
+    d = distance(wet_posts(cells))[pad : pad + posts, pad : pad + posts]
+    return (elevation, floor(elevation, d, surface))
