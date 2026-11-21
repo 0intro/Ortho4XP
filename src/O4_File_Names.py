@@ -308,8 +308,18 @@ def legacy_mask(m_til_x_left, m_til_y_top):
 
 
 def mask_file(til_x_left, til_y_top, zoomlevel, provider_code):
+    # The mask of a texture, beside it. Two providers texture one place at
+    # one zoom level on the edge of a zone, and each texture takes its own
+    # mask, which its conversion deletes.
     return (
-        str(til_y_top) + "_" + str(til_x_left) + "_ZL" + str(zoomlevel) + ".png"
+        str(til_y_top)
+        + "_"
+        + str(til_x_left)
+        + "_ZL"
+        + str(zoomlevel)
+        + "_"
+        + str(provider_code)
+        + ".png"
     )
 
 

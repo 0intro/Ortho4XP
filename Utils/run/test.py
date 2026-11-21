@@ -809,6 +809,50 @@ if m != 5 or [p for p in new if p[1] == 45] or not numpy.allclose(new, [(5.2, 45
     sys.exit("recut: new nodes " + str(new) + " and " + str(m) + " triangles, want the centre of the water triangle and 5")
 """
 
+# Two providers texture one place at one zoom level, on the edge of a
+# zone, each with its mask: in XP11 + bathy, both imprint it into a DXT5,
+# where the first conversion deleted a mask they shared.
+masks_code = """
+import os
+import shutil
+from PIL import Image
+import O4_Imagery_Utils as IMG
+IMG.initialize_extents_dict()
+IMG.initialize_color_filters_dict()
+IMG.initialize_providers_dict()
+IMG.initialize_combined_providers_dict()
+import O4_Config_Utils as CFG
+import O4_File_Names as FNAMES
+import O4_Geo_Utils as GEO
+tile = CFG.Tile(11, 11, "")
+tile.water_tech = "XP11 + bathy"
+tile.imprint_masks_to_dds = True
+textures = os.path.join(tile.build_dir, "textures")
+os.makedirs(textures)
+os.makedirs(FNAMES.Tmp_dir, exist_ok = True)
+(til_x, til_y) = GEO.wgs84_to_orthogrid(11.5, 11.5, 16)
+mask = Image.new("L", (256, 256), 255)
+mask.paste(0, (0, 0, 256, 128))
+codes = ("TEST", "TEST2")
+dirs = [FNAMES.jpeg_file_dir_from_attributes(11, 11, 16, IMG.providers_dict[code]) for code in codes]
+for (code, d) in zip(codes, dirs):
+    os.makedirs(d, exist_ok = True)
+    Image.new("RGB", (4096, 4096), (200, 150, 100)).save(os.path.join(d, FNAMES.jpeg_file_name_from_attributes(til_x, til_y, 16, code)))
+    mask.save(os.path.join(textures, FNAMES.mask_file(til_x, til_y, 16, code)))
+got = []
+try:
+    for code in codes:
+        IMG.convert_texture(tile, til_x, til_y, 16, code)
+        with open(os.path.join(textures, FNAMES.dds_file_name_from_attributes(til_x, til_y, 16, code)), "rb") as f:
+            got.append(f.read(88)[84:])
+finally:
+    shutil.rmtree(tile.build_dir)
+    for d in dirs:
+        shutil.rmtree(d, ignore_errors = True)
+if got != [b"DXT5", b"DXT5"]:
+    sys.exit("the textures of " + str(codes) + " at one place: " + str(got) + ", want both imprinted in a DXT5")
+"""
+
 # The water points of Step 1, in posts from the south west corner of the
 # tile: the sea south west of i + j = 299.9, a lake from 600.25 to 640.25
 # east and 600.25 to 630.25 north, an airport over the sea, and the edges
@@ -2060,6 +2104,7 @@ def test_tile(work, top, errors):
     errors += check("splits", splits_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
     errors += check("split", split_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
     errors += check("recut", recut_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
+    errors += check("masks", masks_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
     if errors:
         return errors
 
