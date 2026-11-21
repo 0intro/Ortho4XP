@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import shutil
 import queue
@@ -95,14 +96,7 @@ def build_tile(tile):
             )
         if not os.path.isdir(os.path.join(tile.build_dir, "textures")):
             os.makedirs(os.path.join(tile.build_dir, "textures"))
-        if UI.cleaning_level > 1 and not tile.grouped:
-            for f in os.listdir(os.path.join(tile.build_dir, "textures")):
-                if f[-4:] != ".png":
-                    continue
-                try:
-                    os.remove(os.path.join(tile.build_dir, "textures", f))
-                except:
-                    pass
+        remove_texture_masks(tile)
         if not tile.grouped:
             try:
                 shutil.rmtree(os.path.join(tile.build_dir, "terrain"))
@@ -221,6 +215,24 @@ def build_tile(tile):
         "Step 3 for tile lat=", tile.lat, ", lon=", tile.lon, ": normal exit."
     )
     return 1
+
+################################################################################
+def remove_texture_masks(tile):
+    # The PNG files beside the textures of a tile built alone, which Step 3
+    # writes again: from cleaning level 2 all of them, the masks and
+    # water_transition.png, and at any level the masks named before each
+    # texture took the name of its provider too, which nothing reads.
+    if tile.grouped:
+        return
+    folder = os.path.join(tile.build_dir, "textures")
+    for f in os.listdir(folder):
+        old = re.fullmatch(r"\d+_\d+_ZL\d+\.png", f)
+        if f[-4:] == ".png" and (UI.cleaning_level > 1 or old):
+            try:
+                os.remove(os.path.join(folder, f))
+            except OSError:
+                pass
+
 
 ################################################################################
 def build_all(tile):
