@@ -2336,6 +2336,34 @@ def apply_water_mask(
 
 
 ################################################################################
+def geotiff_mask(tile, til_x_left, til_y_top, zoomlevel):
+    # The mask that a GeoTIFF export of the texture takes as its alpha: the
+    # crop of the mask of Step 2.5 under it, at mask_zl or above, when it
+    # holds both land and water, or None.
+    if int(zoomlevel) < tile.mask_zl:
+        return None
+    factor = 2 ** (zoomlevel - tile.mask_zl)
+    m_til_x = (int(til_x_left / factor) // 16) * 16
+    m_til_y = (int(til_y_top / factor) // 16) * 16
+    rx = int((til_x_left - factor * m_til_x) / 16)
+    ry = int((til_y_top - factor * m_til_y) / 16)
+    mask_file = os.path.join(
+        FNAMES.mask_dir(tile.lat, tile.lon),
+        FNAMES.legacy_mask(m_til_x, m_til_y),
+    )
+    if not os.path.isfile(mask_file):
+        return None
+    big_img = Image.open(mask_file)
+    x0 = int(rx * 4096 / factor)
+    y0 = int(ry * 4096 / factor)
+    mask_im = big_img.crop((x0, y0, x0 + 4096 // factor, y0 + 4096 // factor))
+    small_array = numpy.array(mask_im, dtype=numpy.uint8)
+    if small_array.max() <= 30 or small_array.min() == 255:
+        return None
+    return mask_im
+
+
+################################################################################
 def convert_texture(
     tile, til_x_left, til_y_top, zoomlevel, provider_code, type="dds"
 ):
@@ -2385,26 +2413,8 @@ def convert_texture(
                 )
             ).convert("L")
     elif type == "tif" and tile.imprint_masks_to_dds:
-        if int(zoomlevel) >= tile.mask_zl:
-            factor = 2 ** (zoomlevel - tile.mask_zl)
-            m_til_x = (int(til_x_left / factor) // 16) * 16
-            m_til_y = (int(til_y_top / factor) // 16) * 16
-            rx = int((til_x_left - factor * m_til_x) / 16)
-            ry = int((til_y_top - factor * m_til_y) / 16)
-            mask_file = os.path.join(
-                FNAMES.mask_dir(tile.lat, tile.lon),
-                FNAMES.legacy_mask(m_til_x, m_til_y),
-            )
-            if os.path.isfile(mask_file):
-                big_img = Image.open(mask_file)
-                x0 = int(rx * 4096 / factor)
-                y0 = int(ry * 4096 / factor)
-                mask_im = big_img.crop(
-                    (x0, y0, x0 + 4096 // factor, y0 + 4096 // factor)
-                )
-                small_array = numpy.array(mask_im, dtype=numpy.uint8)
-                if small_array.max() > 30:
-                    masked_texture = True
+        mask_im = geotiff_mask(tile, til_x_left, til_y_top, zoomlevel)
+        masked_texture = mask_im is not None
 
     if provider_code in providers_dict:
         jpeg_file_name = FNAMES.jpeg_file_name_from_attributes(

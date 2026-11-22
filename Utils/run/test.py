@@ -1065,6 +1065,115 @@ if errors:
     sys.exit("\\n".join(errors))
 """
 
+# Step 2.5 and Step 3 on a tile of its own, +44+005, at mask_zl 16, where
+# a ZL 16 texture lies on one mask tile. The mesh is a grid on eighths of
+# the mask tiles, of land but for four blocks of water, each about a mask
+# tile named by its north west corner in ZL 16 tiles:
+# - A: a lake over A and 3 eighths around it, more than the margin of its
+#   pre-mask, which is all water: its mask is all black;
+# - B: the sea over B and 1 eighth around it, with land in the rest of
+#   its margin: all black, by the blur;
+# - C: the sea over the west half of C: a coast;
+# - D: the sea in the second eighth of the tile east of D, which reaches
+#   the margin of D alone: all white.
+# Step 2.5 saves each mask. In XP12 water without downloads, the middle of
+# the lake is X-Plane's water, outside every overlay, and the shore of the
+# lake an overlay of the sea. A GeoTIFF export takes the alpha of a coast
+# alone, at mask_zl or above.
+complete_masks_code = """
+import os
+import shutil
+import subprocess
+from math import log, pi, tan
+from PIL import Image
+import O4_Imagery_Utils as IMG
+IMG.initialize_extents_dict()
+IMG.initialize_color_filters_dict()
+IMG.initialize_providers_dict()
+IMG.initialize_combined_providers_dict()
+import O4_Config_Utils as CFG
+import O4_File_Names as FNAMES
+import O4_Geo_Utils as GEO
+import O4_Mask_Utils as MASK
+import O4_Overlay_Utils as OVL
+import O4_Tile_Utils as TILE
+tile = CFG.Tile(44, 5, "")
+(tile.mask_zl, tile.mesh_zl, tile.default_zl, tile.masks_width) = (16, 16, 16, 20)
+tile.default_website = "TEST"
+(A, B, C, D) = ((33712, 23616), (33792, 23616), (33712, 23712), (33792, 23712))
+# The blocks of water in ZL 16 tiles, as (west, east, north, south, type).
+water = [
+    (A[0] - 6, A[0] + 22, A[1] - 6, A[1] + 22, 1),
+    (B[0] - 2, B[0] + 18, B[1] - 2, B[1] + 18, 2),
+    (C[0], C[0] + 8, C[1], C[1] + 16, 2),
+    (D[0] + 18, D[0] + 20, D[1] + 4, D[1] + 12, 2),
+]
+# The grid in ZL 16 tiles, from the west and the north edges of the tile.
+def tile_x(lon):
+    return (lon + 180) / 360 * 65536
+def tile_y(lat):
+    return (1 - log(tan((90 + lat) * pi / 360)) / pi) / 2 * 65536
+xs = [tile_x(5)] + list(range(33680, 33861, 2)) + [tile_x(6)]
+ys = [tile_y(45)] + list(range(23576, 23830, 2)) + [tile_y(44)]
+lons = [5.0] + [GEO.gtile_to_wgs84(x, 0, 16)[1] for x in xs[1:-1]] + [6.0]
+lats = [45.0] + [GEO.gtile_to_wgs84(0, y, 16)[0] for y in ys[1:-1]] + [44.0]
+def kind(i, j):
+    (x, y) = ((xs[i] + xs[i + 1]) / 2, (ys[j] + ys[j + 1]) / 2)
+    return next((k for (w, e, n, s, k) in water if w <= x < e and n <= y < s), 0)
+os.makedirs(tile.build_dir)
+(nx, ny) = (len(xs), len(ys))
+with open(FNAMES.mesh_file(tile.build_dir, 44, 5), "w") as f:
+    f.write("MeshVersionFormatted 2\\nDimension 3\\n\\nVertices\\n" + str(nx * ny) + "\\n")
+    for lat in lats:
+        for lon in lons:
+            f.write(repr(lon) + " " + repr(lat) + " 0 0\\n")
+    f.write("\\nNormals\\n" + str(nx * ny) + "\\n" + "0 0 0\\n" * (nx * ny))
+    f.write("\\nTriangles\\n" + str(2 * (nx - 1) * (ny - 1)) + "\\n")
+    for j in range(ny - 1):
+        for i in range(nx - 1):
+            (a, b) = (j * nx + i + 1, (j + 1) * nx + i + 1)
+            f.write("%d %d %d %d\\n%d %d %d %d\\n" % (a, b, b + 1, kind(i, j), a, b + 1, a + 1, kind(i, j)))
+masks = FNAMES.mask_dir(44, 5)
+def mask(key):
+    name = os.path.join(masks, FNAMES.legacy_mask(*key))
+    if not os.path.isfile(name):
+        return None
+    with Image.open(name) as im:
+        return im.getextrema()
+errors = []
+try:
+    if not MASK.build_masks(tile):
+        errors.append("Step 2.5 failed")
+    # The mask tile east of D holds the sea of D, as a coast.
+    for (name, key, want) in (("A, the lake", A, (0, 0)), ("B", B, (0, 0)), ("C", C, (0, 255)), ("D", D, (255, 255)), ("east of D", (D[0] + 16, D[1]), (0, 255))):
+        if mask(key) != want:
+            errors.append("Step 2.5: the mask of " + name + ": " + str(mask(key)) + ", want the extrema " + str(want))
+    # GeoTIFF exports take the alpha of a coast alone.
+    for (name, key, zl, coast) in (("A", A, 16, False), ("C", C, 16, True), ("D", D, 16, False), ("C at ZL 15", (C[0] // 2, C[1] // 2), 15, False)):
+        if (IMG.geotiff_mask(tile, *key, zl) is not None) != coast:
+            errors.append("geotiff_mask of " + name + ": " + str(IMG.geotiff_mask(tile, *key, zl)) + ", want " + ("a mask" if coast else "None"))
+    TILE.skip_downloads = True
+    if not TILE.build_tile(tile):
+        errors.append("Step 3 failed")
+    dsf = os.path.join(tile.build_dir, "Earth nav data", "+40+000", "+44+005.dsf")
+    subprocess.run([OVL.dsftool_cmd.strip(), "-dsf2text", dsf, "complete.txt"], stdout = subprocess.DEVNULL, check = True)
+    with open("complete.txt", encoding = "latin-1") as f:
+        defs = [line.split()[1] for line in f if line.startswith("TERRAIN_DEF")]
+    os.remove("complete.txt")
+    def terrains(key):
+        name = "terrain/" + FNAMES.dds_file_name_from_attributes(*key, 16, "TEST")[:-4]
+        return sorted(d[len(name):] for d in defs if d.startswith(name + "_"))
+    if terrains(A):
+        errors.append("Step 3: the middle of the lake, A, in " + str(terrains(A)) + ", want terrain_Water alone")
+    if terrains((A[0] - 16, A[1])) != ["_sea_overlay.ter"]:
+        errors.append("Step 3: the shore of the lake west of A in " + str(terrains((A[0] - 16, A[1]))) + ", want the overlay of the sea")
+finally:
+    shutil.rmtree(tile.build_dir, ignore_errors = True)
+    shutil.rmtree(masks, ignore_errors = True)
+if errors:
+    sys.exit("\\n".join(errors))
+"""
+
 # read_mesh_file reads a mesh of two triangles alike with line ends of LF
 # and of CRLF, and without the final newline, the altitudes multiplied
 # back by 100000, and raises ValueError or IndexError on a mesh cut short
@@ -2651,6 +2760,7 @@ def test_tile(work, top, errors):
     errors += check("window", window_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
     errors += check("antimeridian", antimeridian_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
     errors += check("readmesh", read_mesh_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
+    errors += check("completemasks", complete_masks_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
     errors += check("triangle4xp", triangle4xp_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
     errors += check("splits", splits_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
     errors += check("split", split_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
