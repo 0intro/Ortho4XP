@@ -955,52 +955,43 @@ def triangulate(name, path_to_Ortho4XP_dir):
 
 ##############################################################################
 def read_mesh_file(mesh_file):
-    
-    f = open(mesh_file,"r")
-    mesh_version = float(f.readline().strip().split()[-1])
-    
-    # skip 3 lines 
-    for i in range(3):
-        f.readline()
-    
-    nbr_nodes = int(f.readline())
-    node_coords = numpy.zeros(5 * nbr_nodes)
-    
-    # read positions
-    for i in range(nbr_nodes):
-        node_coords[5 * i : 5 * i + 3] = [
-            float(x) for x in f.readline().split()[:3]
-        ]
-    # altitutes are encoded in .mesh files with a 100000 scaling factor
-    node_coords[2::5] *= 100000
-    
-    # skip 3 lines
-    for i in range(3):
-        f.readline()
-    
-    # read normals
-    for i in range(nbr_nodes):
-        node_coords[5 * i + 3 : 5 * i + 5] = [
-            float(x) for x in f.readline().split()[:2]
-        ]
-    
-    # skip 2 lines
-    for i in range(0, 2): 
-        f.readline()
+    # The version of a mesh file, its nodes as lon, lat, altitude and the
+    # x and y of the normal, five floats a node, and its triangles as node
+    # indices from 0, three a triangle, with their types. Each section of
+    # the file goes through one call of numpy, and a file cut short or
+    # malformed raises ValueError or IndexError.
+    with open(mesh_file, "rb") as f:
+        data = f.read()
+    ends = numpy.flatnonzero(numpy.frombuffer(data, numpy.uint8) == ord("\n"))
+    if not data.endswith(b"\n"):
+        ends = numpy.append(ends, len(data))
 
-    # read nbr of tris
-    nbr_tris = int(f.readline())      
+    def line(k):
+        return data[ends[k - 1] + 1 if k else 0 : ends[k]]
 
-    tri_idx  = numpy.zeros(3 * nbr_tris, dtype = numpy.uint32)
-    tri_types = numpy.zeros(nbr_tris, dtype = numpy.uint32)
-    for i in range(nbr_tris):
-        (n1, n2, n3, t) = [
-            int(x) - 1 for x in f.readline().split()[:4]
-        ]
-        tri_idx[3 * i: 3 * i + 3] = (n1, n2, n3)
-        tri_types[i] = t + 1
-    f.close()
+    def section(first, count, width, dtype):
+        # The first width numbers of each of the count lines from line
+        # first.
+        if count == 0:
+            return numpy.zeros((0, width), dtype)
+        text = data[ends[first - 1] + 1 : ends[first + count - 1]]
+        return numpy.fromstring(text, dtype, sep=" ").reshape(count, -1)[:, :width]
 
-    return (mesh_version, nbr_nodes, node_coords, nbr_tris, tri_idx, tri_types)
+    mesh_version = float(line(0).split()[-1])
+    # Dimension, a blank line, and Vertices come before the count.
+    nbr_nodes = int(line(4))
+    node_coords = numpy.zeros((nbr_nodes, 5))
+    node_coords[:, :3] = section(5, nbr_nodes, 3, float)
+    # The altitudes lie in the file divided by 100000.
+    node_coords[:, 2] *= 100000
+    # A blank line, Normals, and the count again.
+    node_coords[:, 3:] = section(5 + nbr_nodes + 3, nbr_nodes, 2, float)
+    # A blank line and Triangles.
+    first = 5 + 2 * nbr_nodes + 5
+    nbr_tris = int(line(first))
+    tris = section(first + 1, nbr_tris, 4, numpy.int64)
+    tri_idx = (tris[:, :3] - 1).astype(numpy.uint32).ravel()
+    tri_types = tris[:, 3].astype(numpy.uint32)
+    return (mesh_version, nbr_nodes, node_coords.ravel(), nbr_tris, tri_idx, tri_types)
 ##############################################################################
 
