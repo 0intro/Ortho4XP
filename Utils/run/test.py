@@ -1192,6 +1192,40 @@ if errors:
     sys.exit("\\n".join(errors))
 """
 
+# read_mesh_file reads a mesh of two triangles alike with line ends of LF
+# and of CRLF, without the final newline, and with the header of its
+# normals split between two of the reads of 4 MB that find it, the
+# altitudes multiplied back by 100000, and raises ValueError or
+# IndexError on a mesh cut short or with a malformed vertex.
+read_mesh_code = """
+import os
+import numpy
+import O4_Mesh_Utils as MESH
+mesh = "MeshVersionFormatted 2\\nDimension 3\\n\\nVertices\\n4\\n5.1 45.1 0.001 0\\n5.2 45.1 0.002 0\\n5.1 45.2 0.003 0\\n5.2 45.2 0.004 0\\n\\nNormals\\n4\\n0.1 0.2 0\\n0.1 0.2 0\\n0.3 0.4 0\\n0.3 0.4 0\\n\\nTriangles\\n2\\n1 2 3 1\\n2 4 3 2\\n"
+want = (2.0, 4, [5.1, 45.1, 100, 0.1, 0.2, 5.2, 45.1, 200, 0.1, 0.2, 5.1, 45.2, 300, 0.3, 0.4, 5.2, 45.2, 400, 0.3, 0.4], 2, [0, 1, 2, 1, 3, 2], [1, 2])
+def read(text):
+    with open("read.mesh", "w", newline = "") as f:
+        f.write(text)
+    try:
+        return MESH.read_mesh_file("read.mesh")
+    finally:
+        os.remove("read.mesh")
+# The search for the normals reads from the first vertex.
+start = mesh.index("Vertices\\n4\\n") + len("Vertices\\n4\\n")
+pad = start + (1 << 22) - 1 - mesh.index("\\nNormals")
+split = mesh.replace("0.004 0\\n", "0.004 0" + " " * pad + "\\n")
+for (name, text) in (("LF", mesh), ("CRLF", mesh.replace("\\n", "\\r\\n")), ("no final newline", mesh[:-1]), ("the header of the normals split", split)):
+    got = read(text)
+    if got[0] != want[0] or got[1] != want[1] or not numpy.allclose(got[2], want[2]) or got[3] != want[3] or got[4].tolist() != want[4] or got[5].tolist() != want[5]:
+        sys.exit("read_mesh_file of the mesh with " + name + ": " + repr(got) + ", want " + repr(want))
+for (name, text) in (("cut short", mesh[: mesh.index("Triangles") + 12]), ("with a malformed vertex", mesh.replace("5.2 45.1", "5.2 x"))):
+    try:
+        read(text)
+    except (ValueError, IndexError):
+        continue
+    sys.exit("read_mesh_file of a mesh " + name + ": no error")
+"""
+
 # The water points of Step 1, in posts from the south west corner of the
 # tile: the sea south west of i + j = 299.9, a lake from 600.25 to 640.25
 # east and 600.25 to 630.25 north, an airport over the sea, and the edges
@@ -2865,6 +2899,7 @@ def test_tile(work, top, errors):
     errors += check("masks", masks_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
     errors += check("window", window_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
     errors += check("antimeridian", antimeridian_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
+    errors += check("readmesh", read_mesh_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
     errors += check("triangle4xp", triangle4xp_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
     errors += check("splits", splits_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
     errors += check("split", split_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
