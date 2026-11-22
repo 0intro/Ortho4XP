@@ -306,7 +306,7 @@ def create_terrain_file(
                 + " "
                 + str(texture_approx_size)
                 + " "
-                + str(4096 // 2 ** (zoomlevel - tile.mask_zl))
+                + str(4096 // 2 ** max(0, zoomlevel - tile.mask_zl))
                 + "\n"
             )
             f.write(
@@ -498,6 +498,57 @@ def sub_atom(aid, payload):
 ################################################################################
 
 ################################################################################
+def orthogrid(lat, lon, zoomlevel):
+    # GEO.wgs84_to_orthogrid of arrays of positions.
+    mult = 2 ** (zoomlevel - 5)
+    ratio_y = numpy.log(numpy.tan((90 + lat) * numpy.pi / 360)) / numpy.pi
+    til_x = ((lon / 180 + 1) * mult).astype(numpy.int64) * 16
+    til_y = ((1 - ratio_y) * mult).astype(numpy.int64) * 16
+    return (til_x, til_y)
+
+
+def masks_below_mask_zl(
+    tile, dico_customzl, node_coords, tri_idx, tri_types, has_water
+):
+    # Whether the textures below mask_zl take masks, from the masks of Step
+    # 2.5 under them: in a tile built alone, whose mesh_zl is mask_zl or
+    # above, so that no triangle straddles two mask tiles, with a mask
+    # under each water triangle that Step 2.5 draws in those textures. A
+    # set of masks from before Step 2.5 saved them all, or from a stopped
+    # Step 2.5, misses some, and the coasts of those textures stay hard.
+    if tile.grouped or tile.mesh_zl < tile.mask_zl:
+        return False
+    types = numpy.asarray(tri_types) & has_water
+    drawn = (types > 1) | ((types == 1) & tile.inland_masked)
+    corners = numpy.asarray(tri_idx, dtype=numpy.int64).reshape(-1, 3)[drawn]
+    lon = node_coords[0::5][corners].sum(axis=1) / 3
+    lat = node_coords[1::5][corners].sum(axis=1) / 3
+    (cells, at) = numpy.unique(
+        numpy.stack(orthogrid(lat, lon, tile.mesh_zl), axis=1),
+        axis=0,
+        return_inverse=True,
+    )
+    low = numpy.array(
+        [dico_customzl[(x, y)][2] < tile.mask_zl for (x, y) in cells.tolist()],
+        dtype=bool,
+    )[at.ravel()]
+    (x, y) = orthogrid(lat[low], lon[low], tile.mask_zl)
+    tiles = set(zip(x.tolist(), y.tolist()))
+    missing = [t for t in tiles if not os.path.isfile(MASK.mask_tile_file(tile, *t))]
+    if missing:
+        UI.lvprint(
+            1,
+            "   WARNING:",
+            len(missing),
+            "of the",
+            len(tiles),
+            "masks of Step 2.5 under water in textures below mask_zl are",
+            "missing, so their coasts stay hard. Run Step 2.5 again.",
+        )
+    return not missing
+
+
+################################################################################
 def build_dsf(tile, download_queue):
 
     
@@ -511,8 +562,12 @@ def build_dsf(tile, download_queue):
 
     # 2 Remap tri_types in (0,1,2): 2 for masked water, which inland water
     # is when masked and its texture has a mask from Step 2.5, at mask_zl
-    # or above. Elsewhere it keeps its overlay.
+    # or above, and below when masks_below_mask_zl allows. Elsewhere it
+    # keeps its overlay.
     has_water = 7 if (mesh_version >= 1.3) else 3
+    below = masks_below_mask_zl(
+        tile, dico_customzl, node_coords, tri_idx, tri_types, has_water
+    )
     has_mask = {}
     for i in range(nbr_tris):
         t = tri_types[i] & has_water
@@ -533,7 +588,7 @@ def build_dsf(tile, download_queue):
             if texture not in has_mask:
                 has_mask[texture] = any(
                     os.path.isfile(f)
-                    for f in MASK.texture_mask_files(tile, *texture)
+                    for f in MASK.texture_mask_files(tile, *texture, below=below)
                 )
             if has_mask[texture]:
                 t = 2
@@ -740,6 +795,7 @@ def build_dsf(tile, download_queue):
     
 
     # First potentially masked water tris
+    mask_cache = {}
     for tri in range(nbr_tris):
         tri_type = tri_types[tri]
         if (tri_type != 2):
@@ -769,17 +825,30 @@ def build_dsf(tile, download_queue):
         # The entries for the terrain and texture main dictionnaries
         terrain_attributes = (texture_attributes, tri_type)
         is_overlay = False
-        
+        zl = texture_attributes[2]
+
 
         # Do we need to build new terrain file(s) ?
-        if terrain_attributes in dico_terrains:
+        if below and zl < tile.mask_zl and not MASK.mask_land(
+            mask_cache,
+            MASK.mask_tile_file(
+                tile,
+                *GEO.wgs84_to_orthogrid(bary_lat, bary_lon, tile.mask_zl)
+            ),
+        ):
+            # Below mask_zl, water whose mask tile holds no land is plain
+            # X-Plane water.
+            terrain_idx = 0
+        elif terrain_attributes in dico_terrains:
             terrain_idx = dico_terrains[terrain_attributes]
             is_overlay = terrain_idx in overlay_terrains
         else:
             needs_new_terrain = False
             # if not we need to check with masks values
             if terrain_attributes not in skipped_terrains_for_masking:
-                mask_im = MASK.needs_mask(tile, *texture_attributes)
+                mask_im = MASK.needs_mask(
+                    tile, *texture_attributes, below=below, cache=mask_cache
+                )
                 if mask_im:
                     UI.vprint(2, "      Use of an alpha mask.")
                     needs_new_terrain = True
@@ -826,7 +895,7 @@ def build_dsf(tile, download_queue):
                         mask_times = [
                             os.path.getmtime(f)
                             for f in MASK.texture_mask_files(
-                                tile, *texture_attributes
+                                tile, *texture_attributes, below=below
                             )
                             if os.path.isfile(f)
                         ]
