@@ -324,6 +324,9 @@ def create_terrain_file(
             f.write("WET\n")
         else:
             f.write("NO_ALPHA\n")
+            # Laminar's terrain sets this roughness, which dulls the sheen
+            # of land toward a low sun.
+            f.write("SUPER_ROUGHNESS 0.5\n")
 
         if (tri_type in (1, 2)) or (not tile.terrain_casts_shadows):
             f.write("NO_SHADOW\n")

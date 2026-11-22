@@ -3136,16 +3136,17 @@ def test_tile(work, top, errors):
     ters = glob.glob(os.path.join(build, "terrain", "*.ter"))
     if not ters:
         errors.append("terrain: no .ter files")
-    # The decal of use_decal_on_terrain goes on land, and the water gets
-    # none.
-    decals = []
-    for path in ters:
-        with open(path) as f:
-            if "DECAL_LIB" in f.read():
-                decals.append(os.path.basename(path))
-    wet = sorted(t for t in decals if "_sea" in t or "_water" in t)
-    if not decals or wet:
-        errors.append("terrain: decals on " + str(len(decals)) + " files, " + str(len(wet)) + " of water such as " + str(wet[:2]) + ", want them on land only")
+    # The decal of use_decal_on_terrain and the roughness of Laminar's
+    # terrain go on every file of land, and the water gets neither.
+    land = sorted(os.path.basename(t) for t in ters if "_sea" not in t and "_water" not in t)
+    for line in ("DECAL_LIB lib/g10/decals/maquify_2_green_key.dcl", "SUPER_ROUGHNESS 0.5"):
+        found = []
+        for path in ters:
+            with open(path) as f:
+                if line in f.read().splitlines():
+                    found.append(os.path.basename(path))
+        if sorted(found) != land:
+            errors.append("terrain: " + line + " in " + str(len(found)) + " files such as " + str(sorted(set(found) ^ set(land))[:2]) + ", want it in the " + str(len(land)) + " of land alone")
 
     dsf = os.path.join(build, "Earth nav data", "+40+000", tile + ".dsf")
     with open(dsf, "rb") as f:
