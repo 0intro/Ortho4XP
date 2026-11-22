@@ -82,7 +82,9 @@ def warn_config(file_name, line, reason, verbosity=1):
 # Config files and the GUI give their values as text, which parse_value
 # reads as the setting's type: literal_eval, which accepts only Python
 # literals, reads bool and list settings (a list setting may hold a
-# number, as masks_width does), and the type itself reads the others.
+# number, as masks_width does), and the type itself reads the others. A
+# setting of text with a list of values, as water_tech has, takes one of
+# them. The values of a number are those the GUI offers.
 def owner(var):
     name = cfg_vars[var].get("module")
     return sys.modules[__name__] if name is None else globals()[name]
@@ -105,6 +107,9 @@ def literal(text):
 
 def parse_value(var, text):
     kind = cfg_vars[var]["type"]
+    values = cfg_vars[var].get("values")
+    if kind is str and values and text not in values:
+        raise ValueError("not one of " + ", ".join(values))
     if kind not in (bool, list):
         return kind(text)
     value = literal(text)

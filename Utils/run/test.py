@@ -104,6 +104,8 @@ payload_list = "().__class__.__base__.__subclasses__()"
 # starts with the byte order mark of Notepad. It holds a bool edited by
 # hand to 1, and settings that Ortho4XP has dropped, which only verbosity
 # 2 reports: hmin of 1.30, and distance_masks_too and ratio_bathy of 1.40.
+# Two settings of text hold a value off their lists, a mistyped water_tech
+# and masking_mode, which keep their defaults with a warning.
 # The global config is in cp1252, which Python before 3.15 wrote on
 # Windows.
 legacy_code = """
@@ -118,6 +120,9 @@ with contextlib.redirect_stdout(out):
 for name in ("hmin", "distance_masks_too", "ratio_bathy"):
     if name in out.getvalue():
         sys.exit(name + " reported at verbosity 1: " + out.getvalue())
+for (name, text, want) in (("water_tech", "XP13", "XP12"), ("masking_mode", "Sand", "sand")):
+    if getattr(tile, name) != want or "invalid line: " + name + "=" + text + " (not one of " not in out.getvalue():
+        sys.exit(name + "=" + text + " read as " + repr(getattr(tile, name)) + " with " + repr(out.getvalue()) + ", want " + repr(want) + " and a warning")
 if tile.zone_list != ast.literal_eval(sys.argv[2]):
     sys.exit("zones " + repr(tile.zone_list) + ", want " + sys.argv[2])
 if tile.use_masks_for_inland is not True:
@@ -2714,6 +2719,7 @@ def test_tile(work, top, errors):
         for zone in config["zone_list"] + [payload]:
             f.write("zone_list.append(" + str(zone) + ")\n")
         f.write("use_masks_for_inland=1\nhmin=0\ndistance_masks_too=True\nratio_bathy=0.5\n")
+        f.write("water_tech=XP13\nmasking_mode=Sand\n")
     errors += check("legacy", legacy_code, [legacy, repr(config["zone_list"]), scenery_dir], work, top, log)
     errors += check("7z", seven_zip_code, [], work, top, log)
     errors += check("link", link_code, [], work, top, log)
