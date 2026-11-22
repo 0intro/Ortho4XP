@@ -183,27 +183,28 @@ def build_masks(tile, for_imagery=False):
 
         if (pre_mask.max() == 0) and (
                 not tile.masks_custom_extent or custom_array.max() == 0):
-            return 1
-        
-        
-        blured_mask = blur_mask(pre_mask, tile, inland_grey)
+            # All water: the blur would leave it black.
+            blured_mask = numpy.zeros((4096, 4096), dtype=numpy.uint8)
+        else:
+            blured_mask = blur_mask(pre_mask, tile, inland_grey)
 
-        # Ensure land is kept to 255 on the mask to avoid unecessary ones, crop 
-        # to final size, and take the max with the possible custom extent mask
-        blured_mask = numpy.maximum(
-            (pre_mask > 0).astype(numpy.uint8) * 255, 
-            blured_mask
-        )[1024 : 4096 + 1024, 1024 : 4096 + 1024]
-        
-        if tile.masks_custom_extent:
-            blured_mask = numpy.maximum(blured_mask, custom_array)
+            # Ensure land is kept to 255 on the mask to avoid unecessary ones, crop
+            # to final size, and take the max with the possible custom extent mask
+            blured_mask = numpy.maximum(
+                (pre_mask > 0).astype(numpy.uint8) * 255,
+                blured_mask
+            )[1024 : 4096 + 1024, 1024 : 4096 + 1024]
 
-        if not (blured_mask.max() == 0 or blured_mask.min() == 255):
-            mask_im = Image.fromarray(blured_mask)
-            mask_im.save(os.path.join(
-                dest_dir, FNAMES.legacy_mask(til_x, til_y)))
-            del blured_mask
-            UI.vprint(1, "   Created", FNAMES.legacy_mask(til_x, til_y))
+            if tile.masks_custom_extent:
+                blured_mask = numpy.maximum(blured_mask, custom_array)
+
+        # Every mask is saved, of water or land alone too, so that a mask
+        # missing in the range of the tile means no water near.
+        mask_im = Image.fromarray(blured_mask)
+        mask_im.save(os.path.join(
+            dest_dir, FNAMES.legacy_mask(til_x, til_y)))
+        del blured_mask
+        UI.vprint(1, "   Created", FNAMES.legacy_mask(til_x, til_y))
         return 1
     #################################
     

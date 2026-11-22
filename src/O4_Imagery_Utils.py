@@ -1047,10 +1047,13 @@ def has_data(
         else:
             # following code only visited when is_mask_layer is True
             # in which case it is passed as (lat,lon,mask_zl)
-            # check if sea mask file exists
             (lat, lon, mask_zl) = is_mask_layer
+            # The masks of Step 2.5 under the bbox, at mask_zl: the one that
+            # holds it, or the n by n that a larger one spans, in rows from
+            # the north west one.
+            n = max(1, round((x1 - x0) * 2 ** (mask_zl - 4) / 360))
             (m_tilx, m_tily) = GEO.wgs84_to_orthogrid(
-                (y0 + y1) / 2, (x0 + x1) / 2, mask_zl
+                y0 + (y1 - y0) / (2 * n), x0 + (x1 - x0) / (2 * n), mask_zl
             )
             if os.path.isdir(
                 os.path.join(FNAMES.mask_dir(lat, lon), "Combined_imagery")
@@ -1060,9 +1063,15 @@ def has_data(
                 )
             else:
                 check_dir = FNAMES.mask_dir(lat, lon)
-            if not os.path.isfile(
-                os.path.join(check_dir, FNAMES.legacy_mask(m_tilx, m_tily))
-            ):
+            files = [
+                os.path.join(
+                    check_dir,
+                    FNAMES.legacy_mask(m_tilx + 16 * i, m_tily + 16 * j),
+                )
+                for j in range(n)
+                for i in range(n)
+            ]
+            if not any(os.path.isfile(f) for f in files):
                 return False
             # build extent mask_im
             if extent_code != "global":
@@ -1089,20 +1098,30 @@ def has_data(
                     mask_im = mask_im.resize(mask_size, Image.BICUBIC)
             else:
                 mask_im = Image.new("L", mask_size, "white")
-            # build sea mask_im2
-            (ymax, xmin) = GEO.gtile_to_wgs84(m_tilx, m_tily, mask_zl)
-            (ymin, xmax) = GEO.gtile_to_wgs84(m_tilx + 16, m_tily + 16, mask_zl)
-            mask_im2 = Image.open(
-                os.path.join(check_dir, FNAMES.legacy_mask(m_tilx, m_tily))
-            ).convert("L")
-            (sizex, sizey) = mask_im2.size
-            pxx0 = int((x0 - xmin) / (xmax - xmin) * sizex)
-            pxx1 = int((x1 - xmin) / (xmax - xmin) * sizex)
-            pxy0 = int((ymax - y0) / (ymax - ymin) * sizey)
-            pxy1 = int((ymax - y1) / (ymax - ymin) * sizey)
-            mask_im2 = mask_im2.crop((pxx0, pxy0, pxx1, pxy1)).resize(
-                mask_size, Image.BICUBIC
-            )
+            # build sea mask_im2, white where a mask is missing
+            if n > 1:
+                size = 4096 // n
+                mask_im2 = Image.new("L", (4096, 4096), 255)
+                for (k, f) in enumerate(files):
+                    if os.path.isfile(f):
+                        with Image.open(f) as im:
+                            mask_im2.paste(
+                                im.convert("L").reduce(n),
+                                ((k % n) * size, (k // n) * size),
+                            )
+            else:
+                (ymax, xmin) = GEO.gtile_to_wgs84(m_tilx, m_tily, mask_zl)
+                (ymin, xmax) = GEO.gtile_to_wgs84(
+                    m_tilx + 16, m_tily + 16, mask_zl
+                )
+                mask_im2 = Image.open(files[0]).convert("L")
+                (sizex, sizey) = mask_im2.size
+                pxx0 = int((x0 - xmin) / (xmax - xmin) * sizex)
+                pxx1 = int((x1 - xmin) / (xmax - xmin) * sizex)
+                pxy0 = int((ymax - y0) / (ymax - ymin) * sizey)
+                pxy1 = int((ymax - y1) / (ymax - ymin) * sizey)
+                mask_im2 = mask_im2.crop((pxx0, pxy0, pxx1, pxy1))
+            mask_im2 = mask_im2.resize(mask_size, Image.BICUBIC)
             # invert it
             mask_array2 = 255 - numpy.array(mask_im2, dtype=numpy.uint8)
             # let full sea down (if you wish to...)
@@ -2382,6 +2401,34 @@ def apply_water_mask(
 
 
 ################################################################################
+def geotiff_mask(tile, til_x_left, til_y_top, zoomlevel):
+    # The mask that a GeoTIFF export of the texture takes as its alpha: the
+    # crop of the mask of Step 2.5 under it, at mask_zl or above, when it
+    # holds both land and water, or None.
+    if int(zoomlevel) < tile.mask_zl:
+        return None
+    factor = 2 ** (zoomlevel - tile.mask_zl)
+    m_til_x = (int(til_x_left / factor) // 16) * 16
+    m_til_y = (int(til_y_top / factor) // 16) * 16
+    rx = int((til_x_left - factor * m_til_x) / 16)
+    ry = int((til_y_top - factor * m_til_y) / 16)
+    mask_file = os.path.join(
+        FNAMES.mask_dir(tile.lat, tile.lon),
+        FNAMES.legacy_mask(m_til_x, m_til_y),
+    )
+    if not os.path.isfile(mask_file):
+        return None
+    big_img = Image.open(mask_file)
+    x0 = int(rx * 4096 / factor)
+    y0 = int(ry * 4096 / factor)
+    mask_im = big_img.crop((x0, y0, x0 + 4096 // factor, y0 + 4096 // factor))
+    small_array = numpy.array(mask_im, dtype=numpy.uint8)
+    if small_array.max() <= 30 or small_array.min() == 255:
+        return None
+    return mask_im
+
+
+################################################################################
 def convert_texture(
     tile, til_x_left, til_y_top, zoomlevel, provider_code, type="dds"
 ):
@@ -2431,26 +2478,8 @@ def convert_texture(
                 )
             ).convert("L")
     elif type == "tif" and tile.imprint_masks_to_dds:
-        if int(zoomlevel) >= tile.mask_zl:
-            factor = 2 ** (zoomlevel - tile.mask_zl)
-            m_til_x = (int(til_x_left / factor) // 16) * 16
-            m_til_y = (int(til_y_top / factor) // 16) * 16
-            rx = int((til_x_left - factor * m_til_x) / 16)
-            ry = int((til_y_top - factor * m_til_y) / 16)
-            mask_file = os.path.join(
-                FNAMES.mask_dir(tile.lat, tile.lon),
-                FNAMES.legacy_mask(m_til_x, m_til_y),
-            )
-            if os.path.isfile(mask_file):
-                big_img = Image.open(mask_file)
-                x0 = int(rx * 4096 / factor)
-                y0 = int(ry * 4096 / factor)
-                mask_im = big_img.crop(
-                    (x0, y0, x0 + 4096 // factor, y0 + 4096 // factor)
-                )
-                small_array = numpy.array(mask_im, dtype=numpy.uint8)
-                if small_array.max() > 30:
-                    masked_texture = True
+        mask_im = geotiff_mask(tile, til_x_left, til_y_top, zoomlevel)
+        masked_texture = mask_im is not None
 
     if provider_code in providers_dict:
         jpeg_file_name = FNAMES.jpeg_file_name_from_attributes(
