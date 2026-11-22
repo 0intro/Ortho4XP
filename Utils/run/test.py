@@ -2113,7 +2113,8 @@ if errors:
 """
 
 # Build All and the batch build stop at the first step that fails, here
-# Step 1, as the command line does.
+# Step 1, as the command line does. A batch build runs Steps 1 and 2 of
+# every tile before the other steps of any.
 stop_code = """
 import O4_Config_Utils as CFG
 import O4_Tile_Utils as TILE
@@ -2126,6 +2127,17 @@ if TILE.build_all(tile) or steps != ["Step 1"]:
 steps.clear()
 if TILE.build_tile_list(tile, [(45, 5), (46, 5)], True, True, False, False, False, False) or steps != ["Step 1"]:
     sys.exit("batch build after a failed Step 1: ran " + str(steps) + ", want Step 1 alone")
+steps.clear()
+TILE.VMAP.build_poly_file = lambda tile: steps.append("Step 1 " + str(tile.lat)) or 1
+TILE.MESH.build_mesh = lambda tile: steps.append("Step 2 " + str(tile.lat)) or 1
+TILE.MASK.build_masks = lambda tile: steps.append("Step 2.5 " + str(tile.lat)) or 1
+TILE.build_tile = lambda tile: steps.append("Step 3 " + str(tile.lat)) or 1
+TILE.OVL.build_overlay = lambda lat, lon: steps.append("overlays " + str(lat)) or 1
+tile.make_dirs = lambda: None
+want = ["Step 1 45", "Step 2 45", "Step 1 46", "Step 2 46",
+    "Step 2.5 45", "Step 3 45", "overlays 45", "Step 2.5 46", "Step 3 46", "overlays 46"]
+if not TILE.build_tile_list(tile, [(45, 5), (46, 5)], True, True, True, True, True, False) or steps != want:
+    sys.exit("batch build: ran " + str(steps) + ", want " + str(want))
 """
 
 # Custom coastline and water data whose way runs to a node that they

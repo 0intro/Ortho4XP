@@ -277,9 +277,8 @@ def build_tile_list(
                 + "."
             )
         return 0
-    k = 0
-    for (lat, lon) in list_lat_lon:
-        k += 1
+
+    def start(k, lat, lon):
         UI.vprint(
             1,
             "Dealing with tile ",
@@ -296,12 +295,23 @@ def build_tile_list(
         tile.dem = None
         if do_ptc:
             tile.read_from_config()
-        if do_osm or do_mesh or do_dsf:
+
+    # Steps 1 and 2 of every tile come first, so that Steps 2.5 and 3 of
+    # each find the meshes of the tiles around it, whose water they take
+    # at its edges.
+    if do_osm or do_mesh:
+        for (k, (lat, lon)) in enumerate(list_lat_lon, 1):
+            start(k, lat, lon)
             tile.make_dirs()
-        if do_osm and (not VMAP.build_poly_file(tile) or UI.red_flag):
-            return stopped(lat, lon)
-        if do_mesh and (not MESH.build_mesh(tile) or UI.red_flag):
-            return stopped(lat, lon)
+            if do_osm and (not VMAP.build_poly_file(tile) or UI.red_flag):
+                return stopped(lat, lon)
+            if do_mesh and (not MESH.build_mesh(tile) or UI.red_flag):
+                return stopped(lat, lon)
+    for (k, (lat, lon)) in enumerate(list_lat_lon, 1):
+        if do_mask or do_dsf or do_ovl:
+            start(k, lat, lon)
+        if do_dsf:
+            tile.make_dirs()
         if do_mask and (not MASK.build_masks(tile) or UI.red_flag):
             return stopped(lat, lon)
         if do_dsf and (not build_tile(tile) or UI.red_flag):
