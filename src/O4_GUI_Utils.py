@@ -465,18 +465,14 @@ class Ortho4XP_GUI(tk.Tk):
         error_string = ""
         try:
             lat = int(self.lat.get())
-            if lat < -85 or lat > 84:
-                error_string += (
-                    "Latitude out of range (-85,84) for webmercator grid. "
-                )
         except:
             error_string += "Latitude wrongly encoded. "
         try:
             lon = int(self.lon.get())
-            if lon < -180 or lon > 179:
-                error_string += "Longitude out of range (-180,179)."
         except:
             error_string += "Longitude wrongly encoded."
+        if not error_string:
+            error_string = CFG.tile_error(lat, lon)
         if error_string and check:
             UI.vprint(0, "Error: " + error_string)
             return None
@@ -1835,6 +1831,8 @@ class Ortho4XP_Earth_Preview(tk.Toplevel):
         x = self.canvas.canvasx(event.x)
         y = self.canvas.canvasy(event.y)
         (lat, lon) = [floor(t) for t in GEO.pix_to_wgs84(x, y, self.earthzl)]
+        if CFG.tile_error(lat, lon):
+            return
         if (lat, lon) not in self.dico_tiles_todo:
             [x0, y0] = GEO.wgs84_to_pix(lat + 1, lon, self.earthzl)
             [x1, y1] = GEO.wgs84_to_pix(lat, lon + 1, self.earthzl)

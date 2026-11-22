@@ -2445,6 +2445,13 @@ canvas.event_generate("<B%d-Motion>" % b, x = 100, y = 120)
 gui.update()
 if (canvas.xview(), canvas.yview()) == view:
     errors.append("tile map: a drag with button " + str(b) + " left the map in place")
+# A Shift-click adds a tile of the Web Mercator grid alone: the row at
+# the top of the map, +85, stays out.
+import types
+earth = gui.earth_window
+earth.add_tile(types.SimpleNamespace(x = 300 - canvas.canvasx(0), y = 1 - canvas.canvasy(0)))
+if [t for t in earth.dico_tiles_todo if t[0] > 84]:
+    errors.append("tile map: a Shift-click at the top added " + str(sorted(earth.dico_tiles_todo)) + ", beyond the Web Mercator grid")
 gui.update()
 gui.exit_prg()
 if os.path.exists("pwned"):
@@ -3049,6 +3056,15 @@ def test_tile(work, top, errors):
     os.rename(triangle + ".hidden", triangle)
     if r.returncode != 2 or "Missing " + os.path.join(".", "Utils", sys_dir, "triangle" + exe) not in r.stderr:
         errors.append("Ortho4XP.py without triangle: status " + str(r.returncode) + ", stderr " + repr(r.stderr[-300:]))
+
+    # The command line takes the tiles that the GUI takes, those of the Web
+    # Mercator grid, from 85 S to 85 N and from 180 W to 180 E, and stops
+    # on one beyond with the range. The tiles at the ends of the range,
+    # without a tile config, stop for want of one.
+    for (args, status) in ((["-90", "0", "BI", "16"], 2), (["85", "0"], 2), (["45", "180"], 2), (["84", "179"], 1), (["-85", "-180"], 1)):
+        r = subprocess.run([sys.executable, "Ortho4XP.py"] + args, cwd = top, env = offline_env(), capture_output = True, text = True, timeout = 300)
+        if r.returncode != status or ("out of range" in r.stderr) != (status == 2):
+            errors.append("Ortho4XP.py " + " ".join(args) + ": status " + str(r.returncode) + ", stderr " + repr(r.stderr[-300:]) + ", want " + str(status) + (" and the range" if status == 2 else " and no range"))
     errors += check("stop", stop_code, [], work, top, log)
     errors += check("customosm", custom_osm_code, [], work, top, log)
     errors += check("providerfiles", provider_files_code, [], work, top, log)

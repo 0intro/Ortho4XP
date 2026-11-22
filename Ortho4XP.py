@@ -66,6 +66,9 @@ if __name__ == '__main__':
             zoomlevel=int(sys.argv[4]) if len(sys.argv)==5 else 0
         except ValueError:
             print(usage,file=sys.stderr); sys.exit(2)
+        error=CFG.tile_error(lat,lon)
+        if error:
+            print("Ortho4XP.py:",error.strip(),file=sys.stderr); sys.exit(2)
         tile=CFG.Tile(lat,lon,'')
         if len(sys.argv)==3:
             if not tile.read_from_config():
