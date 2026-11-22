@@ -1647,7 +1647,11 @@ if not MESH.sort_mesh(tile):
 # closer than a step of their pool give. That is done to the sea triangle
 # nearest the south west corner of the tile, in terrain_Water under the
 # overlay of its ZL 12 texture, and to a triangle of inland water, which
-# takes an overlay. The tile config and the mesh go back as they were.
+# takes an overlay. Two slivers of land at 45.6 N 5.4 E, on new nodes
+# with the altitude of the node nearest, turn counter-clockwise in the
+# mesh. A pool at any level from 3 to 8 stores the corners of the first
+# on one line, and those of the second turned over. The tile config and
+# the mesh go back as they were.
 variant_code = """
 import os
 import shutil
@@ -1692,6 +1696,25 @@ def sw(v):
     return float(x) + float(y)
 twin(min((j for j in range(len(tris)) if int(tris[j][3]) & 6), key = lambda j: sum(sw(v) for v in tris[j][:3])))
 twin(next(j for j in range(len(tris)) if int(tris[j][3]) & 7 == 1))
+def node(x, y, like):
+    n = int(lines[4])
+    lines.insert(8 + 2 * n, lines[7 + n + like])
+    lines[7 + n] = str(n + 1)
+    lines.insert(5 + n, " ".join([repr(x), repr(y)] + lines[4 + like].split()[2:]))
+    lines[4] = str(n + 1)
+    return str(n + 1)
+def sliver(corners, like):
+    (a, b, c) = [node(x, y, like) for (x, y) in corners]
+    n = int(lines[4])
+    m = int(lines[10 + 2 * n])
+    lines.insert(11 + 2 * n + m, " ".join((a, b, c, "0")))
+    lines[10 + 2 * n] = str(m + 1)
+u = 2 ** -19
+(x0, y0) = (5 + round(0.4004 / u) * u, 45 + round(0.6004 / u) * u)
+n = int(lines[4])
+like = min(range(1, n + 1), key = lambda i: sum(abs(float(p) - q) for (p, q) in zip(lines[4 + i].split()[:2], (x0, y0))))
+sliver([(x0, y0), (x0 + 2 * u, y0 + 2 * u), (x0 + u, y0 + u + 1e-9)], like)
+sliver([(x0 + 8 * u, y0), (x0 + 11 * u, y0 + u), (x0 + 9 * u, y0 + u / 3 + 1e-9)], like)
 with open(mesh, "w") as f:
     f.write("\\n".join(lines))
 tile.water_tech = "XP11 + bathy"
@@ -2614,16 +2637,20 @@ def dsf_patches(text):
                 patch[4].append([float(x) for x in w[1:]])
     return out
 
-# Every triangle of a DSF keeps three distinct positions once its vertices
-# are quantized in their pools: the others are slivers, which X-Plane
-# skips or draws as cracks.
-def check_collapsed(text, patches):
+# Every triangle of a DSF turns clockwise in lon and lat, as build_dsf
+# writes them, once its vertices are quantized in their pools. The others
+# lie flat or turned over. DSFTool prints positions to 1e-9 degree, close
+# enough to take them back exactly to the steps of a pool at level 8,
+# which hold the steps of every coarser pool.
+def check_winding(text, patches):
+    step = 2 ** -8 / 65535
     for (name, ps) in patches.items():
         for (near, far, flags, depth, vertices) in ps:
             for k in range(0, len(vertices), 3):
                 tri = [tuple(v[:2]) for v in vertices[k : k + 3]]
-                if len(set(tri)) < 3:
-                    return [text + ": " + name + ": a triangle on " + str(tri) + ", want three distinct positions"]
+                (a, b, c) = [(round((x - lon) / step), round((y - lat) / step)) for (x, y) in tri]
+                if (b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1]) >= 0:
+                    return [text + ": " + name + ": a triangle on " + str(tri) + ", want it turning clockwise"]
     return []
 
 # r, of 1201 by 1201 posts from the south west corner of the tile, at lon,
@@ -2747,7 +2774,7 @@ def check_xp12(text, build, served):
             if tilted:
                 errors.append("xp12: " + name + ": normal " + str(tilted[0][3:5]) + " at " + str(tilted[0][:2]) + ", want 0, 0")
                 break
-    errors += check_collapsed(text, patches)
+    errors += check_winding(text, patches)
     ((lat0, lon0), (lat1, lon1)) = (osm["water"][2][0][0], osm["water"][2][0][2])
     pond = [v for (name, ps) in patches.items() if name.endswith("_sea.ter") for p in ps for v in p[4]
         if lon0 < v[0] < lon1 and lat0 < v[1] < lat1]
@@ -2802,7 +2829,7 @@ def check_variant(top, build):
             break
     if "1472_2096_TEST12_sea_overlay.ter" not in ters:
         errors.append("variant: no 1472_2096_TEST12_sea_overlay.ter, want the coast of that ZL 12 texture masked")
-    errors += check_collapsed(text, patches)
+    errors += check_winding(text, patches)
     errors += check_depth("variant", patches, ("terrain_Water",))
     return errors + check_fetch(text, patches, ("terrain_Water",))
 

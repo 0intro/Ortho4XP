@@ -641,9 +641,11 @@ def build_dsf(tile, download_queue):
             idx_node_to_idx_pool[idx_node] = idx_pool
         idx_pool += 1
     pool_param = {}
+    pool_key = numpy.zeros((pool_nbr, 3), dtype=numpy.int64)
     node_icoords = numpy.zeros(5 * nbr_nodes, dtype = numpy.uint16)
     for key in pool_quadtree:
         level = len(key[0])
+        pool_key[key_to_idx_pool[key]] = (level, int(key[0], 2), int(key[1], 2))
         plist = sorted(list(pool_quadtree[key]["idx_nodes"]))
         node_icoords[[5 * idx_node for idx_node in plist]] = [
             int(pool_quadtree.nodes[idx_node][0][level : level + 16], 2)
@@ -701,8 +703,7 @@ def build_dsf(tile, download_queue):
         (1 - tile.normal_map_strength * node_coords[4::5]) / 2 * 65535
     )
     # The position of each node as the pools store it, where X-Plane reads
-    # it. The fetch is taken there, and the triangles left with fewer than
-    # three distinct positions there are skipped.
+    # it. The fetch is taken there.
     pool_of_node = numpy.zeros(nbr_nodes, dtype=numpy.int64)
     pool_of_node[numpy.fromiter(idx_node_to_idx_pool.keys(), numpy.int64)] = (
         numpy.fromiter(idx_node_to_idx_pool.values(), numpy.int64)
@@ -713,18 +714,24 @@ def build_dsf(tile, download_queue):
     node_fetch = numpy.round(65535 * BATHY.fetch(
         elevation, sea_level, node_lon, node_lat, tile.lat, tile.lon
     )).astype(int)
+    # The triangles of the mesh turn counter-clockwise. Those whose corners
+    # no longer do so as the pools store them lie flat or turned over, and
+    # are skipped. X-Plane skips some of them at load, and a flat one that
+    # it keeps stands as a wall of no thickness, over which it has stopped
+    # on "vx_wrl value is nan or inf". The test counts in steps of the
+    # finest pool, where it is exact.
+    (level, key_x, key_y) = pool_key[pool_of_node].T
+    shift = level.max() - level
+    node_x = (key_x * 65535 + node_icoords[0::5]) << shift
+    node_y = (key_y * 65535 + node_icoords[1::5]) << shift
     corners = numpy.asarray(tri_idx, dtype=numpy.int64).reshape(-1, 3)
-    (x, y) = (node_lon[corners], node_lat[corners])
-    collapsed = set(numpy.flatnonzero(
-        ((x[:, 0] == x[:, 1]) & (y[:, 0] == y[:, 1]))
-        | ((x[:, 1] == x[:, 2]) & (y[:, 1] == y[:, 2]))
-        | ((x[:, 2] == x[:, 0]) & (y[:, 2] == y[:, 0]))
-    ).tolist())
+    (x, y) = (node_x[corners], node_y[corners])
+    kept = ((x[:, 1] - x[:, 0]) * (y[:, 2] - y[:, 0])
+        - (x[:, 2] - x[:, 0]) * (y[:, 1] - y[:, 0])) > 0
+    skipped = set(numpy.flatnonzero(~kept).tolist())
     # The water is 0 deep on the shore: the positions that the triangles of
     # land and water left share, where nodes closer than a step of their
     # pool count as one.
-    kept = numpy.ones(len(corners), dtype=bool)
-    kept[list(collapsed)] = False
     wet = numpy.asarray(tri_types) != 0
     position = numpy.unique(
         numpy.stack((node_lon, node_lat), axis=1), axis=0, return_inverse=True
@@ -800,7 +807,7 @@ def build_dsf(tile, download_queue):
                 UI.vprint(1, "DSF construction interrupted.")
                 return 0
         done += 1
-        if tri in collapsed:
+        if tri in skipped:
             continue
         bary_lon = (
             node_coords[5 * n1 + 0]
@@ -1029,7 +1036,7 @@ def build_dsf(tile, download_queue):
                 UI.vprint(1, "DSF construction interrupted.")
                 return 0
         done += 1
-        if tri in collapsed:
+        if tri in skipped:
             continue
         bary_lon = (
             node_coords[5 * n1] + node_coords[5 * n2] + node_coords[5 * n3]
@@ -1195,7 +1202,7 @@ def build_dsf(tile, download_queue):
     UI.vprint(1, "-> Encoding of the DSF file")
     UI.vprint(1, "     Final nbr of nodes: " + str(len_textured_nodes))
     UI.vprint(2, "     Final nbr of cross pool tris: " + str(total_cross_pool))
-    UI.vprint(2, "     Collapsed tris skipped: " + str(len(collapsed)))
+    UI.vprint(2, "     Flat or turned over tris skipped: " + str(len(skipped)))
 
     # Now is time to write our DSF to disk, the exact binary format is 
     # described on the wiki
