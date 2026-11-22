@@ -2487,6 +2487,62 @@ for (what, step, merged, folder) in steps:
     os.remove(merged(46, 5))
 """
 
+# Step 1 warns when its coastline floods the land, and names the custom
+# coastline that would replace one of OSM. A custom coastline of the tile
+# with an island alone makes sea of all the tile but the island, which
+# the DEM puts above 10 m for the most part, and the warning blames it.
+# The coastline of the main build matches the sea of the DEM, and gives
+# no warning, nor does a sea of a few points of the grid on the plateau.
+flood_code = """
+import bz2
+import contextlib
+import io
+import os
+from shapely import geometry
+import O4_Config_Utils as CFG
+import O4_DEM_Utils as DEM
+import O4_File_Names as FNAMES
+import O4_Vector_Map as VMAP
+import O4_Vector_Utils as VECT
+tile = CFG.Tile(45, 5, "")
+tile.read_from_config()
+tile.dem = DEM.DEM(45, 5, tile.custom_dem, "to zero")
+def flooded(sea_area = None, custom_source = False):
+    # The warning that include_sea prints, or warn_if_flooded for
+    # sea_area, or "".
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        if sea_area is None:
+            if not VMAP.include_sea(VECT.Vector_Map(), tile):
+                sys.exit("include_sea failed")
+        else:
+            VMAP.warn_if_flooded(sea_area, tile, custom_source)
+    out = out.getvalue()
+    return out[out.find("WARNING: The DEM puts"):] if "WARNING: The DEM puts" in out else ""
+if flooded():
+    sys.exit("the coastline of the main build: a warning of flooding")
+if flooded(geometry.box(0.6, 0.6, 0.62, 0.62)):
+    sys.exit("a sea of 16 points of the grid on the plateau: a warning of flooding")
+warned = flooded(geometry.box(0, 0, 1, 1))
+if "The OSM coastline" not in warned or FNAMES.custom_coastline(45, 5) not in warned:
+    sys.exit("an OSM coastline that floods the tile: warned " + repr(warned) + ", want the OSM coastline blamed and " + FNAMES.custom_coastline(45, 5) + " named")
+island = [(45.6, 5.6), (45.6, 5.62), (45.62, 5.62), (45.62, 5.6)]
+osm = ('<?xml version="1.0" encoding="UTF-8"?>\\n<osm version="0.6">\\n'
+    + "".join('  <node id="' + str(i + 1) + '" lat="' + str(p[0]) + '" lon="' + str(p[1]) + '"/>\\n' for (i, p) in enumerate(island))
+    + '  <way id="1">\\n'
+    + "".join('    <nd ref="' + str(i + 1) + '"/>\\n' for i in list(range(len(island))) + [0])
+    + '  </way>\\n</osm>\\n')
+custom = FNAMES.custom_coastline(45, 5)
+with bz2.open(custom, "wt", encoding = "utf-8") as f:
+    f.write(osm)
+try:
+    warned = flooded()
+finally:
+    os.remove(custom)
+if "The custom coastline" not in warned or "A custom coastline in" in warned:
+    sys.exit("a custom coastline of an island alone: warned " + repr(warned) + ", want the custom coastline blamed")
+"""
+
 # Every provider file loads, as the one provider of its code, and so does
 # every combined provider, which Ortho4XP drops with a printed line when
 # it rejects one. Providers/Test holds the providers of these checks.
@@ -3545,6 +3601,7 @@ def test_tile(work, top, errors):
             errors.append("Ortho4XP.py " + " ".join(args) + ": status " + str(r.returncode) + ", stderr " + repr(r.stderr[-300:]) + ", want " + str(status) + (" and the range" if status == 2 else " and no range"))
     errors += check("stop", stop_code, [], work, top, log)
     errors += check("customosm", custom_osm_code, [], work, top, log)
+    errors += check("flood", flood_code, [], work, top, log)
     errors += check("providerfiles", provider_files_code, [], work, top, log)
     errors += check("apikey", api_key_code, [], work, top, log)
     errors += check("fallback", fallback_code, [], work, top, log)
