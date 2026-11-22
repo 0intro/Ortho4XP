@@ -217,20 +217,25 @@ def build_masks(tile, for_imagery=False):
     
 ################################################################################
 def select_neighbor_meshes(tile):
+    # The meshes of the tile and of the tiles around it, as (file name,
+    # lat, lon), lat and lon placing each tile beside this one. Across
+    # 180 E, the tile beside lies at lon 180 or -181, 360 degrees from the
+    # name of its mesh and from the longitudes in it.
     mesh_list = []
-    for close_lat in range(tile.lat - 1, tile.lat + 2):
+    for close_lat in range(max(tile.lat - 1, -90), min(tile.lat + 2, 90)):
         for close_lon in range(tile.lon - 1, tile.lon + 2):
+            lon = (close_lon + 180) % 360 - 180
             close_build_dir = (tile.build_dir if tile.grouped
                 else tile.build_dir.replace(
                     FNAMES.tile_dir(tile.lat, tile.lon),
-                    FNAMES.tile_dir(close_lat, close_lon),
+                    FNAMES.tile_dir(close_lat, lon),
                 )
             )
             close_mesh_file_name = FNAMES.mesh_file(
-                close_build_dir, close_lat, close_lon
+                close_build_dir, close_lat, lon
             )
             if os.path.isfile(close_mesh_file_name):
-                mesh_list.append(close_mesh_file_name)
+                mesh_list.append((close_mesh_file_name, close_lat, close_lon))
     return mesh_list
 ################################################################################
 
@@ -264,10 +269,7 @@ def build_water_pre_mask(til_x, til_y, mesh_list, dico_sea, dico_inland,
     mask_draw = ImageDraw.Draw(mask_im)
     # 2) We fill it with white over the extent of each tile around for 
     # which we had a mesh available
-    for mesh_file_name in mesh_list:
-        latlonstr = mesh_file_name.split(".mes")[-2][-7:]
-        lathere = int(latlonstr[0:3])
-        lonhere = int(latlonstr[3:7])
+    for (mesh_file_name, lathere, lonhere) in mesh_list:
         (px1, py1) = GEO.wgs84_to_pix(lathere, lonhere, tile.mask_zl)
         (px2, py2) = GEO.wgs84_to_pix(lathere, lonhere + 1, tile.mask_zl)
         (px3, py3) = GEO.wgs84_to_pix(
@@ -416,22 +418,7 @@ def mask_keys(til_x, til_y, a, b):
 
 ################################################################################
 def record_water_tris(tile):
-    mesh_list = []
-    for close_lat in range(tile.lat - 1, tile.lat + 2):
-        for close_lon in range(tile.lon - 1, tile.lon + 2):
-            close_build_dir = (
-                tile.build_dir
-                if tile.grouped
-                else tile.build_dir.replace(
-                    FNAMES.tile_dir(tile.lat, tile.lon),
-                    FNAMES.tile_dir(close_lat, close_lon),
-                )
-            )
-            close_mesh_file_name = FNAMES.mesh_file(
-                close_build_dir, close_lat, close_lon
-            )
-            if os.path.isfile(close_mesh_file_name):
-                mesh_list.append(close_mesh_file_name)
+    mesh_list = select_neighbor_meshes(tile)
     ####################
     dico_sea = {}
     dico_inland = {}
@@ -446,7 +433,7 @@ def record_water_tris(tile):
         tile.lat, tile.lon + 1, tile.mask_zl
     )
     UI.vprint(1, "-> Reading mesh data")
-    for mesh_file_name in mesh_list:
+    for (mesh_file_name, _, lon) in mesh_list:
         try:
             f_mesh = open(mesh_file_name, "r")
             UI.vprint(1, "   * ", mesh_file_name)
@@ -465,6 +452,7 @@ def record_water_tris(tile):
             pt_in[5 * i : 5 * i + 3] = [
                 float(x) for x in f_mesh.readline().split()[:3]
             ]
+        pt_in[0::5] += lon - ((lon + 180) % 360 - 180)
         for i in range(0, 3):
             f_mesh.readline()
         for i in range(0, nbr_pt_in):
