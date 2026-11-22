@@ -1119,6 +1119,65 @@ for gdal in [False] + [True] * DEM.has_gdal:
         sys.exit("read_raster_file with GDAL " + str(gdal) + ": a window of " + str(part[8].shape) + ", off the whole by " + str(numpy.nanmax(numpy.abs(a - b))) + ", want 125 by 125 and the same floor")
 """
 
+# Step 2.5 at 180 E: +45+179 holds a sea 0.2 degree wide along its east
+# edge, beside +45-180, all land, and +45-180 the same sea along its west
+# edge, beside +45+179. The mask at the edge fades the sea into the land
+# of the tile across it.
+antimeridian_code = """
+import os
+import shutil
+import numpy
+from PIL import Image
+import O4_Config_Utils as CFG
+import O4_File_Names as FNAMES
+import O4_Geo_Utils as GEO
+import O4_Mask_Utils as MASK
+def write_mesh(build_dir, lon, sea):
+    # The mesh of the tile at 45, lon, in bands of land and, with sea, of
+    # sea from sea to sea + 0.2, cut into rows of 0.05 degree, as the masks
+    # take a triangle by its centre.
+    xs = sorted({lon, lon + 1} | ({sea, round(sea + 0.2, 6)} if sea is not None else set()))
+    ys = [45 + r / 20 for r in range(21)]
+    n = len(xs)
+    os.makedirs(build_dir, exist_ok = True)
+    with open(FNAMES.mesh_file(build_dir, 45, lon), "w") as f:
+        f.write("MeshVersionFormatted 2\\nDimension 3\\n\\nVertices\\n" + str(len(ys) * n) + "\\n")
+        for y in ys:
+            for x in xs:
+                f.write(str(x) + " " + str(y) + " 0 0\\n")
+        f.write("\\nNormals\\n" + str(len(ys) * n) + "\\n" + "0 0 0\\n" * (len(ys) * n))
+        f.write("\\nTriangles\\n" + str(2 * (n - 1) * (len(ys) - 1)) + "\\n")
+        for r in range(len(ys) - 1):
+            for k in range(n - 1):
+                kind = 2 if sea is not None and abs(xs[k] - sea) < 1e-9 else 0
+                (a, b) = (r * n + k + 1, (r + 1) * n + k + 1)
+                f.write("%d %d %d %d\\n%d %d %d %d\\n" % (a, a + 1, b + 1, kind, a, b + 1, b, kind))
+errors = []
+for (lon, beside, sea) in ((179, -180, 179.8), (-180, 179, -180)):
+    tile = CFG.Tile(45, lon, "")
+    beside_dir = tile.build_dir.replace(FNAMES.tile_dir(45, lon), FNAMES.tile_dir(45, beside))
+    write_mesh(tile.build_dir, lon, sea)
+    write_mesh(beside_dir, beside, None)
+    # The mask of the texture at 180 E, in the middle of the tile.
+    (til_x, til_y) = GEO.wgs84_to_orthogrid(45.5, 179.99 if lon == 179 else -179.99, tile.mask_zl)
+    name = os.path.join(FNAMES.mask_dir(45, lon), FNAMES.legacy_mask(til_x, til_y))
+    try:
+        built = MASK.build_masks(tile)
+        mask = numpy.asarray(Image.open(name)) if os.path.isfile(name) else None
+    finally:
+        shutil.rmtree(tile.build_dir)
+        shutil.rmtree(beside_dir)
+        shutil.rmtree(FNAMES.mask_dir(45, lon), ignore_errors = True)
+    if mask is None:
+        errors.append("Step 2.5 of " + FNAMES.short_latlon(45, lon) + ": " + str(built) + ", without " + name)
+        continue
+    edge = mask[:, -4:] if lon == 179 else mask[:, :4]
+    if not built or edge.mean() < 64:
+        errors.append("Step 2.5 of " + FNAMES.short_latlon(45, lon) + ": " + str(built) + ", the mask at 180 E averaging " + str(round(edge.mean(), 1)) + ", want 1 and the sea fading into the land beside")
+if errors:
+    sys.exit("\\n".join(errors))
+"""
+
 # The water points of Step 1, in posts from the south west corner of the
 # tile: the sea south west of i + j = 299.9, a lake from 600.25 to 640.25
 # east and 600.25 to 630.25 north, an airport over the sea, and the edges
@@ -2772,6 +2831,7 @@ def test_tile(work, top, errors):
     errors += check("watercolour", water_colour_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
     errors += check("masks", masks_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
     errors += check("window", window_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
+    errors += check("antimeridian", antimeridian_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
     errors += check("triangle4xp", triangle4xp_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
     errors += check("splits", splits_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
     errors += check("split", split_code, [], work, top, os.path.join(work, "Ortho4XP.log"))
