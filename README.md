@@ -17,10 +17,6 @@ libgl1, libglu1-mesa, libx11-6, libxi6, and libxrandr2 on Debian and
 Ubuntu. Install_Instructions.txt explains how to run Ortho4XP from
 source.
 
-NOTE 15/02/2024 : In transition to version 1.40.
-
-Version 1.40 is mostly a compatibility update for XP 12 water requirements.
-
 Water is X-Plane 12 water by default (water_tech XP12). Masked water, the
 sea and the lakes in textures at mask_zl or above, takes its colour from the
 orthophoto, which fades into the colour of X-Plane's own water away from the
