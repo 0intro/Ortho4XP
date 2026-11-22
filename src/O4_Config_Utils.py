@@ -556,6 +556,18 @@ else:
         )
 
 
+def tile_error(lat, lon):
+    # The error in the tile at lat, lon, or "". The tiles lie on the Web
+    # Mercator grid of the imagery, which ends at 85.0511 degrees north
+    # and south.
+    error = ""
+    if lat < -85 or lat > 84:
+        error += "Latitude out of range (-85,84) for webmercator grid. "
+    if lon < -180 or lon > 179:
+        error += "Longitude out of range (-180,179)."
+    return error
+
+
 ################################################################################
 class Tile:
     def __init__(self, lat, lon, custom_build_dir):

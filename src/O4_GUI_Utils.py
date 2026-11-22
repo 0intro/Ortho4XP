@@ -465,18 +465,14 @@ class Ortho4XP_GUI(tk.Tk):
         error_string = ""
         try:
             lat = int(self.lat.get())
-            if lat < -85 or lat > 84:
-                error_string += (
-                    "Latitude out of range (-85,84) for webmercator grid. "
-                )
         except:
             error_string += "Latitude wrongly encoded. "
         try:
             lon = int(self.lon.get())
-            if lon < -180 or lon > 179:
-                error_string += "Longitude out of range (-180,179)."
         except:
             error_string += "Longitude wrongly encoded."
+        if not error_string:
+            error_string = CFG.tile_error(lat, lon)
         if error_string and check:
             UI.vprint(0, "Error: " + error_string)
             return None

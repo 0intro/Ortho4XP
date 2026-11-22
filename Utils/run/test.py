@@ -2827,6 +2827,14 @@ def test_tile(work, top, errors):
     os.rename(triangle + ".hidden", triangle)
     if r.returncode != 2 or "Missing " + os.path.join(".", "Utils", sys_dir, "triangle" + exe) not in r.stderr:
         errors.append("Ortho4XP.py without triangle: status " + str(r.returncode) + ", stderr " + repr(r.stderr[-300:]))
+
+    # The command line takes the tiles that the GUI takes, those of the Web
+    # Mercator grid, from 85 S to 85 N and from 180 W to 180 E, and stops
+    # on one beyond with the range.
+    for args in (["-90", "0", "BI", "16"], ["85", "0"], ["45", "180"]):
+        r = subprocess.run([sys.executable, "Ortho4XP.py"] + args, cwd = top, env = offline_env(), capture_output = True, text = True, timeout = 300)
+        if r.returncode != 2 or "out of range" not in r.stderr:
+            errors.append("Ortho4XP.py " + " ".join(args) + ": status " + str(r.returncode) + ", stderr " + repr(r.stderr[-300:]) + ", want 2 and the range")
     errors += check("stop", stop_code, [], work, top, log)
     errors += check("customosm", custom_osm_code, [], work, top, log)
     errors += check("providerfiles", provider_files_code, [], work, top, log)
