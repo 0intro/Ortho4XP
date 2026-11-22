@@ -2372,7 +2372,12 @@ if errors:
 """
 
 # Build All and the batch build stop at the first step that fails, here
-# Step 1, as the command line does.
+# Step 1, as the command line does. A batch build runs Steps 1 and 2 of
+# every tile before the other steps of any. It reads each tile's config
+# over the settings that it began with, which the later steps of the tile
+# take as Steps 1 and 2 left them, keeps the meshes that the tiles around
+# each need until it ends, and clears the mark of a tile on the earth map
+# once the last step of that tile is done.
 stop_code = """
 import O4_Config_Utils as CFG
 import O4_Tile_Utils as TILE
@@ -2385,6 +2390,63 @@ if TILE.build_all(tile) or steps != ["Step 1"]:
 steps.clear()
 if TILE.build_tile_list(tile, [(45, 5), (46, 5)], True, True, False, False, False, False) or steps != ["Step 1"]:
     sys.exit("batch build after a failed Step 1: ran " + str(steps) + ", want Step 1 alone")
+steps.clear()
+TILE.VMAP.build_poly_file = lambda tile: steps.append("Step 1 " + str(tile.lat)) or 1
+TILE.MESH.build_mesh = lambda tile: steps.append("Step 2 " + str(tile.lat)) or 1
+TILE.MASK.build_masks = lambda tile: steps.append("Step 2.5 " + str(tile.lat)) or 1
+TILE.build_tile = lambda tile, keep_mesh = False: steps.append("Step 3 " + str(tile.lat)) or 1
+TILE.OVL.build_overlay = lambda lat, lon: steps.append("overlays " + str(lat)) or 1
+tile.make_dirs = lambda: None
+want = ["Step 1 45", "Step 2 45", "Step 1 46", "Step 2 46",
+    "Step 2.5 45", "Step 3 45", "overlays 45", "Step 2.5 46", "Step 3 46", "overlays 46"]
+if not TILE.build_tile_list(tile, [(45, 5), (46, 5)], True, True, True, True, True, False) or steps != want:
+    sys.exit("batch build: ran " + str(steps) + ", want " + str(want))
+import os
+import types
+import O4_File_Names as FNAMES
+import O4_UI_Utils as UI
+# Tile +48+005 has a config and +47+005 none, and the batch reads them.
+# Step 1 sets iterate to 0 over that of the config, as the real one does,
+# and the later steps keep it.
+cfg = os.path.join(FNAMES.build_dir(48, 5, ""), "Ortho4XP_+48+005.cfg")
+os.makedirs(os.path.dirname(cfg), exist_ok = True)
+with open(cfg, "w") as f:
+    f.write("mask_zl=16\\niterate=1\\n")
+seen = []
+TILE.VMAP.build_poly_file = lambda tile: setattr(tile, "iterate", 0) or 1
+TILE.MASK.build_masks = lambda tile: seen.append((tile.lat, tile.mask_zl, tile.iterate)) or 1
+tile = CFG.Tile(47, 5, "")
+tile.mask_zl = 14
+tile.make_dirs = lambda: None
+TILE.build_tile_list(tile, [(47, 5), (48, 5)], True, True, True, False, False, True)
+if seen != [(47, 14, 0), (48, 16, 0)]:
+    sys.exit("batch build with tile configs: Step 2.5 saw (lat, mask_zl, iterate) " + str(seen) + ", want [(47, 14, 0), (48, 16, 0)]")
+# At cleaning level 3, the meshes go when the batch ends.
+meshes = [FNAMES.mesh_file(FNAMES.build_dir(lat, 5, ""), lat, 5) for lat in (47, 48)]
+for mesh in meshes:
+    os.makedirs(os.path.dirname(mesh), exist_ok = True)
+    open(mesh, "w").close()
+kept = []
+TILE.build_tile = lambda tile, keep_mesh = False: kept.append(keep_mesh) or 1
+level = UI.cleaning_level
+UI.cleaning_level = 3
+TILE.build_tile_list(tile, [(47, 5), (48, 5)], False, False, False, True, False, False)
+UI.cleaning_level = level
+if kept != [True, True] or [m for m in meshes if os.path.exists(m)]:
+    sys.exit("batch build at cleaning level 3: Step 3 kept the mesh " + str(kept) + ", meshes left " + str([m for m in meshes if os.path.exists(m)]) + ", want Step 3 to keep each, and none left")
+# Steps 1 and 2 alone, with Step 2 failing on +48+005, and Steps 1 to 3,
+# with Step 3 failing there: the mark of +47+005 goes once its last step
+# is done, the others stay.
+gui = getattr(UI, "gui", None)
+for (what, do_dsf) in (("Steps 1 and 2", False), ("Steps 1 to 3", True)):
+    UI.gui = types.SimpleNamespace(earth_window = types.SimpleNamespace(canvas = types.SimpleNamespace(delete = lambda item: None), dico_tiles_todo = {(47, 5): 1, (48, 5): 2, (49, 5): 3}))
+    TILE.MESH.build_mesh = lambda tile: do_dsf or tile.lat != 48
+    TILE.build_tile = lambda tile, keep_mesh = False: tile.lat != 48
+    TILE.build_tile_list(tile, [(47, 5), (48, 5), (49, 5)], True, True, False, do_dsf, False, False)
+    left = sorted(UI.gui.earth_window.dico_tiles_todo)
+    UI.gui = gui
+    if left != [(48, 5), (49, 5)]:
+        sys.exit("batch build of " + what + " that stops at +48+005: marks left " + str(left) + ", want those of +48+005 and +49+005")
 """
 
 # Custom coastline and water data whose way runs to a node that they

@@ -49,7 +49,7 @@ def download_textures(tile, download_queue, convert_queue, failed):
     return 1
 
 ################################################################################
-def build_tile(tile):
+def build_tile(tile, keep_mesh=False):
     if UI.is_working:
         return 0
     UI.is_working = 1
@@ -225,10 +225,11 @@ def build_tile(tile):
         except:
             pass
     if UI.cleaning_level > 2:
-        try:
-            os.remove(FNAMES.mesh_file(tile.build_dir, tile.lat, tile.lon))
-        except:
-            pass
+        if not keep_mesh:
+            try:
+                os.remove(FNAMES.mesh_file(tile.build_dir, tile.lat, tile.lon))
+            except:
+                pass
         for apt_file in (FNAMES.apt_file(tile), FNAMES.legacy_apt_file(tile)):
             try:
                 os.remove(apt_file)
@@ -296,9 +297,24 @@ def build_tile_list(
                 + "."
             )
         return 0
-    k = 0
-    for (lat, lon) in list_lat_lon:
-        k += 1
+
+    def done(lat, lon):
+        try:
+            UI.gui.earth_window.canvas.delete(
+                UI.gui.earth_window.dico_tiles_todo[(lat, lon)]
+            )
+            UI.gui.earth_window.dico_tiles_todo.pop((lat, lon), None)
+        except:
+            pass
+
+    # Each tile reads its config over the settings that the batch began
+    # with, so that a setting of one tile's config stays with that tile.
+    # The later steps of a tile take the settings that its Steps 1 and 2
+    # left, as Step 1 sets iterate to 0.
+    settings = tile.settings()
+    meshed = {}
+
+    def start(k, lat, lon):
         UI.vprint(
             1,
             "Dealing with tile ",
@@ -313,27 +329,48 @@ def build_tile_list(
             tile.lat, tile.lon, tile.custom_build_dir
         )
         tile.dem = None
-        if do_ptc:
+        if (lat, lon) in meshed:
+            tile.restore_settings(meshed[(lat, lon)])
+        elif do_ptc:
+            tile.restore_settings(settings)
             tile.read_from_config()
-        if do_osm or do_mesh or do_dsf:
+
+    # Steps 1 and 2 of every tile come first, so that Steps 2.5 and 3 of
+    # each find the meshes of the tiles around it, whose water they take
+    # at its edges. The meshes stay until the batch ends, and after a stop
+    # for its rerun.
+    later = do_mask or do_dsf or do_ovl
+    if do_osm or do_mesh:
+        for (k, (lat, lon)) in enumerate(list_lat_lon, 1):
+            start(k, lat, lon)
             tile.make_dirs()
-        if do_osm and (not VMAP.build_poly_file(tile) or UI.red_flag):
-            return stopped(lat, lon)
-        if do_mesh and (not MESH.build_mesh(tile) or UI.red_flag):
-            return stopped(lat, lon)
+            if do_osm and (not VMAP.build_poly_file(tile) or UI.red_flag):
+                return stopped(lat, lon)
+            if do_mesh and (not MESH.build_mesh(tile) or UI.red_flag):
+                return stopped(lat, lon)
+            if later:
+                meshed[(lat, lon)] = tile.settings()
+            else:
+                done(lat, lon)
+    for (k, (lat, lon)) in enumerate(list_lat_lon, 1):
+        if later:
+            start(k, lat, lon)
+        if do_dsf:
+            tile.make_dirs()
         if do_mask and (not MASK.build_masks(tile) or UI.red_flag):
             return stopped(lat, lon)
-        if do_dsf and (not build_tile(tile) or UI.red_flag):
+        if do_dsf and (not build_tile(tile, keep_mesh=True) or UI.red_flag):
             return stopped(lat, lon)
         if do_ovl and (not OVL.build_overlay(lat, lon) or UI.red_flag):
             return stopped(lat, lon)
-        try:
-            UI.gui.earth_window.canvas.delete(
-                UI.gui.earth_window.dico_tiles_todo[(lat, lon)]
-            )
-            UI.gui.earth_window.dico_tiles_todo.pop((lat, lon), None)
-        except:
-            pass
+        done(lat, lon)
+    if do_dsf and UI.cleaning_level > 2:
+        for (lat, lon) in list_lat_lon:
+            build_dir = FNAMES.build_dir(lat, lon, tile.custom_build_dir)
+            try:
+                os.remove(FNAMES.mesh_file(build_dir, lat, lon))
+            except:
+                pass
     UI.lvprint(
         0, "Batch process completed in", UI.nicer_timer(time.time() - timer)
     )

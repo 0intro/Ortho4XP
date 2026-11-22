@@ -643,6 +643,14 @@ class Tile:
                 )
                 raise Exception
 
+    def settings(self):
+        # The settings of the tile, for restore_settings.
+        return {var: copy.deepcopy(getattr(self, var)) for var in list_tile_vars}
+
+    def restore_settings(self, settings):
+        for (var, value) in settings.items():
+            setattr(self, var, copy.deepcopy(value))
+
     def read_from_config(self, config_file=None):
         if not config_file:
             config_file = os.path.join(
