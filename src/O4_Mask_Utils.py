@@ -21,27 +21,68 @@ mask_altitude_above = 0.5
 masks_build_slots = 4
 
 ################################################################################
-def texture_mask_files(tile, til_x_left, til_y_top, zl, *args):
+def texture_mask_files(tile, til_x_left, til_y_top, zl, *args, below=False):
     # The masks of Step 2.5 under the texture, which may be missing: at
-    # mask_zl or above, the mask of the mask tile that holds it.
+    # mask_zl or above, the mask of the mask tile that holds it, and below
+    # with below, the n by n masks it holds, n = 2 ** (mask_zl - zl), in
+    # rows from the north.
     if int(zl) < tile.mask_zl:
-        return []
+        if not below:
+            return []
+        n = 2 ** (tile.mask_zl - zl)
+        return [
+            mask_tile_file(tile, n * til_x_left + 16 * i, n * til_y_top + 16 * j)
+            for j in range(n)
+            for i in range(n)
+        ]
     factor = 2 ** (zl - tile.mask_zl)
     m_til_x = (int(til_x_left / factor) // 16) * 16
     m_til_y = (int(til_y_top / factor) // 16) * 16
-    return [
-        os.path.join(
-            FNAMES.mask_dir(tile.lat, tile.lon),
-            FNAMES.legacy_mask(m_til_x, m_til_y),
-        )
-    ]
+    return [mask_tile_file(tile, m_til_x, m_til_y)]
+
+
+def mask_tile_file(tile, m_til_x, m_til_y):
+    # The mask of Step 2.5 of the mask tile m_til_x, m_til_y at mask_zl.
+    return os.path.join(
+        FNAMES.mask_dir(tile.lat, tile.lon), FNAMES.legacy_mask(m_til_x, m_til_y)
+    )
+
+
+def mask_land(cache, mask_file, n):
+    # Whether the mask in mask_file holds land, a pixel above 30, and the
+    # mask shrunk n times, or (False, None) when the file is missing. Each
+    # file is read once, into cache.
+    if (mask_file, n) not in cache:
+        if not os.path.isfile(mask_file):
+            cache[(mask_file, n)] = (False, None)
+        else:
+            with Image.open(mask_file) as im:
+                im = im.convert("L")
+                cache[(mask_file, n)] = (im.getextrema()[1] > 30, im.reduce(n))
+    return cache[(mask_file, n)]
 ################################################################################
 
 ################################################################################
-def needs_mask(tile, til_x_left, til_y_top, zl, *args):
-    # The mask of the texture, cropped from the mask under it, or False
-    # when that is missing or holds water alone.
-    files = texture_mask_files(tile, til_x_left, til_y_top, zl)
+def needs_mask(tile, til_x_left, til_y_top, zl, *args, below=False, cache=None):
+    # The mask of the texture, from the masks under it, or False when they
+    # are missing or hold water alone. At mask_zl or above, it is cropped
+    # from the mask that holds the texture. Below, with below, each mask
+    # under the texture is shrunk to its place in a mask of 4096 pixels,
+    # which stays white where one is missing, with no water near. cache
+    # keeps the masks read, as mask_land does.
+    files = texture_mask_files(tile, til_x_left, til_y_top, zl, below=below)
+    if int(zl) < tile.mask_zl:
+        n = 2 ** (tile.mask_zl - zl)
+        cache = {} if cache is None else cache
+        read = [mask_land(cache, f, n) for f in files]
+        if not any(land for (land, _) in read):
+            return False
+        size = 4096 // n
+        mask = Image.new("L", (4096, 4096), 255)
+        for (k, (_, im)) in enumerate(read):
+            if im is not None:
+                mask.paste(im, ((k % n) * size, (k // n) * size))
+        return mask
     if not files or not os.path.isfile(files[0]):
         return False
     mask_file = files[0]

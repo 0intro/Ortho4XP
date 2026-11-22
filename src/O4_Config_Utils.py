@@ -334,7 +334,7 @@ a particular server.",
         "type": int,
         "default": 14,
         "values": (14, 15, 16),
-        "hint": "The zoomlevel at which the (sea) water masks are built. Masks are used for alpha channel, and this channel usually requires less resolution than the RGB ones, the reason for this (VRAM saving) parameter. If the coastline and elevation data are very detailed, it might be interesting to lift this parameter up so that the masks can reproduce this complexity.",
+        "hint": "The zoomlevel at which the (sea) water masks are built. Masks are used for alpha channel, and this channel usually requires less resolution than the RGB ones, the reason for this (VRAM saving) parameter. If the coastline and elevation data are very detailed, it might be interesting to lift this parameter up so that the masks can reproduce this complexity. In a tile built alone, textures below mask_zl take their masks from those at mask_zl, shrunk and pasted together.",
     },
     "masks_width": {
         "type": list,
@@ -350,7 +350,7 @@ a particular server.",
     "use_masks_for_inland": {
         "type": bool,
         "default": False,
-        "hint": "Will use masks for the inland water (lakes, rivers, etc) too, instead of the default constant transparency level determined by ratio_water. This is VRAM expensive and presumably not really worth the price. The XP12 water_tech masks inland water in textures at mask_zl or above in any case.",
+        "hint": "Will use masks for the inland water (lakes, rivers, etc) too, instead of the default constant transparency level determined by ratio_water. This is VRAM expensive and presumably not really worth the price. The XP12 water_tech masks inland water in any case: in every texture of a tile built alone, and at mask_zl or above in grouped tiles.",
     },
     "imprint_masks_to_dds": {
         "type": bool,
@@ -397,7 +397,7 @@ a particular server.",
             "type": str,
             "default": "XP12",
             "values" : ("XP12", "XP11 + bathy"),
-            "hint" : "XP12 draws the masked water, the sea and the lakes in textures at mask_zl or above, as X-Plane 12 water coloured by the orthophoto, which fades into the colour of X-Plane's own water away from the shore. XP11 + bathy draws the orthophoto as overlays over X-Plane water, with the masks in their alpha or in png files. Both have the 3D waves and the floor of X-Plane 12. A tile or global config keeps the value it was written with: after changing it, run Steps 2.5 and 3 again."
+            "hint" : "XP12 draws the masked water, the sea and the lakes, as X-Plane 12 water coloured by the orthophoto, which fades into the colour of X-Plane's own water away from the shore. Grouped tiles mask their textures at mask_zl or above alone. XP11 + bathy draws the orthophoto as overlays over X-Plane water, with the masks in their alpha or in png files. Both have the 3D waves and the floor of X-Plane 12. A tile or global config keeps the value it was written with: after changing it, run Steps 2.5 and 3 again."
     },
     #"add_low_res_sea_ovl": {
     #    "type": bool,
@@ -413,7 +413,7 @@ a particular server.",
     "ratio_water": {
         "type": float,
         "default": 0.25,
-        "hint": 'Inland water rendering is made of two layers : one bottom layer of "X-Plane water" and one overlay layer of orthophoto with constant level of transparency applied. The parameter ratio_water (values between 0 and 1) determines how much transparency is applied to the orthophoto. At zero, the orthophoto is fully opaque and X-Plane water cannot be seen ; at 1 the orthophoto is fully transparent and only the X-Plane water is seen. With the XP12 water_tech, inland water in textures at mask_zl or above takes masks instead, and fades from the orthophoto at the shore into X-Plane water, as the sea does.',
+        "hint": 'Inland water rendering is made of two layers : one bottom layer of "X-Plane water" and one overlay layer of orthophoto with constant level of transparency applied. The parameter ratio_water (values between 0 and 1) determines how much transparency is applied to the orthophoto. At zero, the orthophoto is fully opaque and X-Plane water cannot be seen ; at 1 the orthophoto is fully transparent and only the X-Plane water is seen. With the XP12 water_tech, inland water takes masks instead, at mask_zl or above in grouped tiles, and fades from the orthophoto at the shore into X-Plane water, as the sea does.',
     },
     "normal_map_strength": {
         "type": float,
