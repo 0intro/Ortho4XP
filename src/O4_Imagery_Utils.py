@@ -2407,23 +2407,8 @@ def geotiff_mask(tile, til_x_left, til_y_top, zoomlevel):
     # holds both land and water, or None.
     if int(zoomlevel) < tile.mask_zl:
         return None
-    factor = 2 ** (zoomlevel - tile.mask_zl)
-    m_til_x = (int(til_x_left / factor) // 16) * 16
-    m_til_y = (int(til_y_top / factor) // 16) * 16
-    rx = int((til_x_left - factor * m_til_x) / 16)
-    ry = int((til_y_top - factor * m_til_y) / 16)
-    mask_file = os.path.join(
-        FNAMES.mask_dir(tile.lat, tile.lon),
-        FNAMES.legacy_mask(m_til_x, m_til_y),
-    )
-    if not os.path.isfile(mask_file):
-        return None
-    big_img = Image.open(mask_file)
-    x0 = int(rx * 4096 / factor)
-    y0 = int(ry * 4096 / factor)
-    mask_im = big_img.crop((x0, y0, x0 + 4096 // factor, y0 + 4096 // factor))
-    small_array = numpy.array(mask_im, dtype=numpy.uint8)
-    if small_array.max() <= 30 or small_array.min() == 255:
+    mask_im = MASK.needs_mask(tile, til_x_left, til_y_top, zoomlevel)
+    if not mask_im or numpy.array(mask_im, dtype=numpy.uint8).min() == 255:
         return None
     return mask_im
 

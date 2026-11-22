@@ -21,35 +21,35 @@ mask_altitude_above = 0.5
 masks_build_slots = 4
 
 ################################################################################
-def mask_name_for_texture(tile, til_x_left, til_y_top, zl, *args):
+def texture_mask_files(tile, til_x_left, til_y_top, zl, *args):
+    # The masks of Step 2.5 under the texture, which may be missing: at
+    # mask_zl or above, the mask of the mask tile that holds it.
     if int(zl) < tile.mask_zl:
-        return ""
+        return []
     factor = 2 ** (zl - tile.mask_zl)
     m_til_x = (int(til_x_left / factor) // 16) * 16
     m_til_y = (int(til_y_top / factor) // 16) * 16
-    rx = int((til_x_left - factor * m_til_x) / 16)
-    ry = int((til_y_top - factor * m_til_y) / 16)
-    return os.path.join(
-        FNAMES.mask_dir(tile.lat, tile.lon),
-        FNAMES.legacy_mask(m_til_x, m_til_y)
+    return [
+        os.path.join(
+            FNAMES.mask_dir(tile.lat, tile.lon),
+            FNAMES.legacy_mask(m_til_x, m_til_y),
         )
+    ]
 ################################################################################
 
 ################################################################################
 def needs_mask(tile, til_x_left, til_y_top, zl, *args):
-    if int(zl) < tile.mask_zl:
+    # The mask of the texture, cropped from the mask under it, or False
+    # when that is missing or holds water alone.
+    files = texture_mask_files(tile, til_x_left, til_y_top, zl)
+    if not files or not os.path.isfile(files[0]):
         return False
+    mask_file = files[0]
     factor = 2 ** (zl - tile.mask_zl)
     m_til_x = (int(til_x_left / factor) // 16) * 16
     m_til_y = (int(til_y_top / factor) // 16) * 16
     rx = int((til_x_left - factor * m_til_x) / 16)
     ry = int((til_y_top - factor * m_til_y) / 16)
-    mask_file = os.path.join(
-        FNAMES.mask_dir(tile.lat, tile.lon),
-        FNAMES.legacy_mask(m_til_x, m_til_y)
-        )
-    if not os.path.isfile(mask_file):
-        return False
     big_img = Image.open(mask_file)
     x0 = int(rx * 4096 / factor)
     y0 = int(ry * 4096 / factor)

@@ -531,8 +531,9 @@ def build_dsf(tile, download_queue):
                 GEO.wgs84_to_orthogrid(bary_lat, bary_lon, tile.mesh_zl)
             ]
             if texture not in has_mask:
-                has_mask[texture] = os.path.isfile(
-                    MASK.mask_name_for_texture(tile, *texture)
+                has_mask[texture] = any(
+                    os.path.isfile(f)
+                    for f in MASK.texture_mask_files(tile, *texture)
                 )
             if has_mask[texture]:
                 t = 2
@@ -822,13 +823,17 @@ def build_dsf(tile, download_queue):
                     )
                     if not rebuild and (tile.imprint or tile.water_color_mask):
                         # Maybe masks were updated after target_tex was created
-                        target_mask = MASK.mask_name_for_texture(tile, 
-                                          *texture_attributes)
-                        if (os.path.isfile(target_mask)):
-                            mask_last_modified = os.path.getmtime(target_mask)
-                            tex_last_modified = os.path.getmtime(target_tex)
-                            if (tex_last_modified < mask_last_modified):
-                                rebuild = True
+                        mask_times = [
+                            os.path.getmtime(f)
+                            for f in MASK.texture_mask_files(
+                                tile, *texture_attributes
+                            )
+                            if os.path.isfile(f)
+                        ]
+                        if mask_times and (
+                            os.path.getmtime(target_tex) < max(mask_times)
+                        ):
+                            rebuild = True
                     
                     if rebuild or not (tile.imprint or tile.water_color_mask):
                         mask_im.save(os.path.join(
