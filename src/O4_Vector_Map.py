@@ -452,6 +452,7 @@ def include_sea(vector_map, tile):
             UI.vprint(
                 1, "      Found ", len(sea_area.geoms), "contiguous patch(es)."
             )
+            warn_if_flooded(sea_area, tile)
         vector_map.water.extend(sea_area.geoms)
         for polygon in sea_area.geoms:
             seed = numpy.array(polygon.representative_point().coords[0])
@@ -460,6 +461,32 @@ def include_sea(vector_map, tile):
             else:
                 vector_map.seeds["SEA"] = [seed]
     return 1
+
+
+################################################################################
+def warn_if_flooded(sea_area, tile):
+    # A coastline that OSM gives in part can make sea of the land: all of
+    # the tile but its islands, when no way of the coast crosses its edge.
+    # The DEM puts the sea at 0 m and most land above 10 m, so the warning
+    # comes when over a quarter of the sea, at the points of a grid of 200
+    # by 200, lies above 10 m.
+    n = 200
+    g = (numpy.arange(n) + 0.5) / n
+    (x, y) = (a.ravel() for a in numpy.meshgrid(g, g))
+    sea = shapely.contains_xy(sea_area, x, y)
+    if not sea.any():
+        return
+    alt = tile.dem.alt_vec(numpy.stack((x[sea], y[sea]), axis=1))
+    high = numpy.mean(alt > 10)
+    if high > 0.25:
+        UI.lvprint(
+            0,
+            "WARNING: The DEM puts " + str(round(100 * high)) + "% of the sea",
+            "of the coastline above 10 m. The OSM coastline may lack a way,",
+            "and the land floods. A custom coastline in",
+            FNAMES.custom_coastline(tile.lat, tile.lon),
+            "replaces it.",
+        )
 
 
 ################################################################################

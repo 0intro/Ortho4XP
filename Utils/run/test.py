@@ -2178,6 +2178,48 @@ for (what, step, merged, folder) in steps:
     os.remove(merged(46, 5))
 """
 
+# Step 1 warns when its coastline floods the land. A custom coastline of
+# the tile with an island alone makes sea of all the tile but the island,
+# which the DEM puts above 10 m for the most part. The coastline of the
+# main build matches the sea of the DEM, and gives no warning.
+flood_code = """
+import bz2
+import contextlib
+import io
+import os
+import O4_Config_Utils as CFG
+import O4_DEM_Utils as DEM
+import O4_File_Names as FNAMES
+import O4_Vector_Map as VMAP
+import O4_Vector_Utils as VECT
+tile = CFG.Tile(45, 5, "")
+tile.read_from_config()
+tile.dem = DEM.DEM(45, 5, tile.custom_dem, "to zero")
+def flooded():
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        if not VMAP.include_sea(VECT.Vector_Map(), tile):
+            sys.exit("include_sea failed")
+    return "WARNING: The DEM puts" in out.getvalue()
+if flooded():
+    sys.exit("the coastline of the main build: a warning of flooding")
+island = [(45.6, 5.6), (45.6, 5.62), (45.62, 5.62), (45.62, 5.6)]
+osm = ('<?xml version="1.0" encoding="UTF-8"?>\\n<osm version="0.6">\\n'
+    + "".join('  <node id="' + str(i + 1) + '" lat="' + str(p[0]) + '" lon="' + str(p[1]) + '"/>\\n' for (i, p) in enumerate(island))
+    + '  <way id="1">\\n'
+    + "".join('    <nd ref="' + str(i + 1) + '"/>\\n' for i in list(range(len(island))) + [0])
+    + '  </way>\\n</osm>\\n')
+custom = FNAMES.custom_coastline(45, 5)
+with bz2.open(custom, "wt", encoding = "utf-8") as f:
+    f.write(osm)
+try:
+    warned = flooded()
+finally:
+    os.remove(custom)
+if not warned:
+    sys.exit("a coastline of an island alone: no warning of flooding")
+"""
+
 # Every provider file loads, and so does every combined provider, which
 # Ortho4XP drops with a printed line when it rejects one. Providers/Test
 # holds the providers of these checks.
@@ -3163,6 +3205,7 @@ def test_tile(work, top, errors):
             errors.append("Ortho4XP.py " + " ".join(args) + ": status " + str(r.returncode) + ", stderr " + repr(r.stderr[-300:]) + ", want 2 and the range")
     errors += check("stop", stop_code, [], work, top, log)
     errors += check("customosm", custom_osm_code, [], work, top, log)
+    errors += check("flood", flood_code, [], work, top, log)
     errors += check("providerfiles", provider_files_code, [], work, top, log)
     errors += check("apikey", api_key_code, [], work, top, log)
     errors += check("fallback", fallback_code, [], work, top, log)
