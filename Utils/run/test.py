@@ -122,8 +122,11 @@ if os.listdir("oldmasks"):
 # starts with the byte order mark of Notepad. It holds a bool edited by
 # hand to 1, and settings that Ortho4XP has dropped, which only verbosity
 # 2 reports: hmin of 1.30, and distance_masks_too and ratio_bathy of 1.40.
-# The global config is in cp1252, which Python before 3.15 wrote on
-# Windows.
+# Two settings of text hold a value off their lists, a mistyped water_tech
+# and masking_mode, which keep their defaults with a warning. An Overpass
+# server of 1.40 that is gone becomes a random one, without a warning,
+# and another one off the list is an error. The global config is in
+# cp1252, which Python before 3.15 wrote on Windows.
 legacy_code = """
 import ast
 import contextlib
@@ -136,10 +139,21 @@ with contextlib.redirect_stdout(out):
 for name in ("hmin", "distance_masks_too", "ratio_bathy"):
     if "invalid line: " + name + "=" in out.getvalue():
         sys.exit(name + " reported at verbosity 1: " + out.getvalue())
+for (name, text, want) in (("water_tech", "XP13", "XP12"), ("masking_mode", "Sand", "sand")):
+    if getattr(tile, name) != want or "invalid line: " + name + "=" + text + " (not one of " not in out.getvalue():
+        sys.exit(name + "=" + text + " read as " + repr(getattr(tile, name)) + " with " + repr(out.getvalue()) + ", want " + repr(want) + " and a warning")
 if tile.zone_list != ast.literal_eval(sys.argv[2]):
     sys.exit("zones " + repr(tile.zone_list) + ", want " + sys.argv[2])
 if tile.use_masks_for_inland is not True:
     sys.exit("use_masks_for_inland=1 read as " + repr(tile.use_masks_for_inland) + ", want True")
+if CFG.parse_value("overpass_server_choice", "FR") != "random":
+    sys.exit("overpass_server_choice=FR of 1.40 read as " + repr(CFG.parse_value("overpass_server_choice", "FR")) + ", want random")
+try:
+    got = CFG.parse_value("overpass_server_choice", "XX")
+except ValueError:
+    pass
+else:
+    sys.exit("overpass_server_choice=XX read as " + repr(got) + ", want an error")
 if CFG.custom_scenery_dir != sys.argv[3]:
     sys.exit("custom_scenery_dir " + repr(CFG.custom_scenery_dir) + ", want " + repr(sys.argv[3]))
 """
@@ -2247,10 +2261,14 @@ if errors:
 # Step 3 stopped in build_dsf or after it leaves its DSF inactive, and so
 # does one whose DSF fails or raises, beside a DSF left by an earlier
 # stop, and each moves the DSF of an earlier run to .bak. build_dsf leaves
-# the active DSF in place while it writes the new one. A mask whose build
-# raises fails Step 2.5. That last one leaves the tile without masks, so
-# this check runs last.
+# the active DSF in place while it writes the new one. A masks_width that
+# does not fit the masking_mode, as a config whose masking_mode is
+# rejected can leave, stops Step 2.5 with an error, and a mask whose build
+# raises fails it. That last one leaves the tile without masks, so this
+# check runs last.
 failures_code = """
+import contextlib
+import io
 import os
 import queue
 import shutil
@@ -2342,6 +2360,14 @@ if not built or active != b"active" or not os.path.exists(dsf + ".tmp"):
     errors.append("build_dsf beside an active DSF: " + str(built) + ", the DSF " + repr(active[:16]) + ", want 1 and the DSF left as it was until Step 3 activates the new one")
 shutil.rmtree(stopped.build_dir)
 
+for (mode, width) in (("sand", [20, 30, 50]), ("3steps", 100), ("3steps", [20, 30])):
+    (tile.masking_mode, tile.masks_width) = (mode, width)
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        built = MASK.build_masks(tile)
+    if built or "ERROR: masking_mode " + mode + " needs masks_width" not in out.getvalue():
+        errors.append("build_masks in " + mode + " with masks_width " + str(width) + ": " + str(built) + ", want 0 and an error")
+tile.read_from_config()
 MASK.build_water_pre_mask = fail
 if MASK.build_masks(tile):
     errors.append("build_masks with a mask that raises: succeeded")
@@ -2941,6 +2967,7 @@ def test_tile(work, top, errors):
         for zone in config["zone_list"] + [payload]:
             f.write("zone_list.append(" + str(zone) + ")\n")
         f.write("use_masks_for_inland=1\nhmin=0\ndistance_masks_too=True\nratio_bathy=0.5\n")
+        f.write("water_tech=XP13\nmasking_mode=Sand\n")
     errors += check("legacy", legacy_code, [legacy, repr(config["zone_list"]), scenery_dir], work, top, log)
     errors += check("7z", seven_zip_code, [], work, top, log)
     errors += check("link", link_code, [], work, top, log)

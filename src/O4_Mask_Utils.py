@@ -96,8 +96,23 @@ def build_masks(tile, for_imagery=False):
         )
         UI.exit_message_and_bottom_line("")
         return 0
-    
-    # Check or create dest dir 
+
+    # blur_mask takes masks_width as three widths in 3steps, and as one
+    # otherwise.
+    if tile.masking_mode == "3steps":
+        valid = isinstance(tile.masks_width, list) and len(tile.masks_width) == 3
+    else:
+        valid = not isinstance(tile.masks_width, list)
+    if not valid:
+        UI.exit_message_and_bottom_line(
+            "\nERROR: masking_mode " + tile.masking_mode + " needs masks_width",
+            "as " + ("a list of three widths, [a,b,c]"
+                if tile.masking_mode == "3steps" else "one width")
+            + ", and it holds " + str(tile.masks_width) + ".",
+        )
+        return 0
+
+    # Check or create dest dir
     dest_dir = (
         FNAMES.mask_dir(tile.lat, tile.lon)
         if not for_imagery
